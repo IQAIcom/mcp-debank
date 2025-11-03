@@ -1,7 +1,7 @@
 import type { LanguageModel } from "ai";
 import { generateText } from "ai";
-import endent from "endent";
-import jq from "jqts";
+import dedent from "dedent";
+import { JQ } from "jqts";
 import { createChildLogger } from "./index.js";
 
 const logger = createChildLogger("LLM Data Filter");
@@ -87,7 +87,7 @@ export class LLMDataFilter {
 		const parsedData = JSON.parse(data);
 		const schema = this.getJSONSchema(parsedData);
 
-		const prompt = endent`
+		const prompt = dedent`
 			You are a JSON data filtering expert. Your task is to generate a JQ query that will filter the JSON data based on the user's request.
 
 			## Schema of the data:
@@ -183,7 +183,7 @@ export class LLMDataFilter {
 				return this.getFallbackData(parsedData);
 			}
 
-			const pattern = jq.compile(jqQuery);
+			const pattern = JQ.compile(jqQuery);
 			let filteredData: JSONValue = pattern.evaluate(parsedData);
 
 			if (

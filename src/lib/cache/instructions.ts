@@ -1,6 +1,6 @@
-import endent from "endent";
+import dedent from "dedent";
 
-export const chainsInstruction = endent`
+export const chainsInstruction = dedent`
 	You are a blockchain chain resolver for DeBank API integration.
 	Your task is to match user-provided blockchain names to their corresponding DeBank chain IDs.
 

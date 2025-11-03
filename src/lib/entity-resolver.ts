@@ -1,4 +1,4 @@
-import endent from "endent";
+import dedent from "dedent";
 import { chainIds } from "../enums/chains.js";
 import { cachedContentName } from "./cache/cache-manager.js";
 import { createResolver } from "./resolvers/base-resolver.js";
@@ -19,7 +19,7 @@ const chainResolver = createResolver({
 	sanitize: sanitizeChainId,
 	validate: (chainId, entities) =>
 		entities.some((chain) => chain.id === chainId),
-	fallbackPrompt: (name, context) => endent`
+	fallbackPrompt: (name, context) => dedent`
 		You are a blockchain chain resolver. Given a user's input for a blockchain name, find the matching DeBank chain ID.
 
 		Available chains (format: Name: id):
