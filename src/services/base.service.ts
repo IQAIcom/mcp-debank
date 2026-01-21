@@ -13,11 +13,15 @@ import { LLMDataFilter } from "../lib/utils/data-filter.js";
 import { createChildLogger } from "../lib/utils/index.js";
 import { toMarkdown } from "../lib/utils/markdown-formatter.js";
 
-const logger = createChildLogger("DeBank Base Service");
+const logger = createChildLogger("DeBank MCP Base Service");
 
 // Initialize tiktoken encoder for token counting
 const encoder = new Tiktoken(cl100k_base);
 
+/**
+ * Base Service for DeBank API
+ * Provides common caching and data fetching functionality
+ */
 export abstract class BaseService {
 	protected baseUrl = config.baseUrl;
 	protected aiModel?: LanguageModel;
@@ -41,25 +45,78 @@ export abstract class BaseService {
 		this.currentQuery = query;
 	}
 
+	protected readonly DEFAULT_CACHE_TTL_SECONDS = config.debankDefaultLifeTime;
+
 	protected async fetchWithToolConfig<T>(
 		url: string,
-		cacheDuration = config.debankDefaultLifeTime,
+		cacheDuration = this.DEFAULT_CACHE_TTL_SECONDS,
 	): Promise<T> {
+		// Use IQ Gateway if configured, otherwise make direct API calls
+		if (env.IQ_GATEWAY_URL && env.IQ_GATEWAY_KEY) {
+			return this.fetchViaGateway<T>(url, cacheDuration);
+		}
+		return this.fetchDirect<T>(url);
+	}
+
+	/**
+	 * Fetch data via IQ Gateway (with caching and monitoring)
+	 */
+	private async fetchViaGateway<T>(
+		url: string,
+		cacheDuration: number,
+	): Promise<T> {
+		if (!env.IQ_GATEWAY_URL || !env.IQ_GATEWAY_KEY) {
+			throw new Error(
+				"IQ_GATEWAY_URL and IQ_GATEWAY_KEY must be configured to use gateway",
+			);
+		}
+
 		const proxyUrl = new URL(env.IQ_GATEWAY_URL);
 		proxyUrl.searchParams.append("url", url);
 		proxyUrl.searchParams.append("projectName", "debank_mcp");
-		proxyUrl.searchParams.append("cacheDuration", cacheDuration.toString());
-
-		const gatewayUrl = proxyUrl.href;
+		if (cacheDuration >= 0) {
+			proxyUrl.searchParams.append(
+				"cacheDuration",
+				Math.floor(cacheDuration).toString(),
+			);
+		}
 
 		try {
-			const response = await axios.get<T>(gatewayUrl, {
+			const response = await axios.get<T>(proxyUrl.href, {
 				headers: {
 					"Content-Type": "application/json",
 					"x-api-key": env.IQ_GATEWAY_KEY,
 				},
 			});
+			return response.data;
+		} catch (error: unknown) {
+			if (axios.isAxiosError(error)) {
+				const errorPayload = error.response?.data ?? error.message;
+				const errorMessage =
+					typeof errorPayload === "string"
+						? errorPayload
+						: JSON.stringify(errorPayload);
+				throw new Error(errorMessage);
+			}
+			throw error instanceof Error ? error : new Error(String(error));
+		}
+	}
 
+	/**
+	 * Fetch data directly from DeBank API
+	 */
+	private async fetchDirect<T>(url: string): Promise<T> {
+		try {
+			const headers: Record<string, string> = {
+				"Content-Type": "application/json",
+			};
+
+			// Add DeBank API key if provided
+			if (env.DEBANK_API_KEY) {
+				headers["AccessKey"] = env.DEBANK_API_KEY;
+			}
+
+			const response = await axios.get<T>(url, { headers });
 			return response.data;
 		} catch (error: unknown) {
 			if (axios.isAxiosError(error)) {
@@ -78,31 +135,85 @@ export abstract class BaseService {
 		url: string,
 		body: unknown,
 	): Promise<T> {
-		const proxyUrl = new URL(env.IQ_GATEWAY_URL);
+		if (env.IQ_GATEWAY_URL && env.IQ_GATEWAY_KEY) {
+			return this.postViaGateway<T>(url, body);
+		}
+		return this.postDirect<T>(url, body);
+	}
+
+	private async postViaGateway<T>(url: string, body: unknown): Promise<T> {
+		const proxyUrl = new URL(env.IQ_GATEWAY_URL!);
 		proxyUrl.searchParams.append("url", url);
 		proxyUrl.searchParams.append("method", "POST");
+		proxyUrl.searchParams.append("projectName", "debank_mcp");
 
-		const gatewayUrl = proxyUrl.href;
+		try {
+			const response = await axios.post<T>(proxyUrl.href, body, {
+				headers: {
+					"Content-Type": "application/json",
+					"x-api-key": env.IQ_GATEWAY_KEY!,
+				},
+			});
+			return response.data;
+		} catch (error: unknown) {
+			if (axios.isAxiosError(error)) {
+				const errorPayload = error.response?.data ?? error.message;
+				const errorMessage =
+					typeof errorPayload === "string"
+						? errorPayload
+						: JSON.stringify(errorPayload);
+				throw new Error(errorMessage);
+			}
+			throw error instanceof Error ? error : new Error(String(error));
+		}
+	}
 
-		const response = await fetch(gatewayUrl, {
-			method: "POST",
-			headers: {
+	private async postDirect<T>(url: string, body: unknown): Promise<T> {
+		try {
+			const headers: Record<string, string> = {
 				"Content-Type": "application/json",
-				"x-api-key": env.IQ_GATEWAY_KEY,
-			},
-			body: JSON.stringify(body),
-		});
+			};
 
-		if (!response.ok) {
-			throw new Error(await response.text());
+			if (env.DEBANK_API_KEY) {
+				headers["AccessKey"] = env.DEBANK_API_KEY;
+			}
+
+			const response = await axios.post<T>(url, body, { headers });
+			return response.data;
+		} catch (error: unknown) {
+			if (axios.isAxiosError(error)) {
+				const errorPayload = error.response?.data ?? error.message;
+				const errorMessage =
+					typeof errorPayload === "string"
+						? errorPayload
+						: JSON.stringify(errorPayload);
+				throw new Error(errorMessage);
+			}
+			throw error instanceof Error ? error : new Error(String(error));
+		}
+	}
+
+	protected toUnixSeconds(value: string | number): number {
+		if (typeof value === "number") {
+			return Math.floor(value);
 		}
 
-		return (await response.json()) as T;
+		const trimmed = value.trim();
+		if (/^\d+$/.test(trimmed)) {
+			return Math.floor(Number(trimmed));
+		}
+
+		const parsed = Date.parse(trimmed);
+		if (Number.isNaN(parsed)) {
+			throw new Error(`Invalid timestamp value: ${value}`);
+		}
+
+		return Math.floor(parsed / 1000);
 	}
 
 	/**
 	 * Format response for LLM consumption
-	 * Returns MCP-compliant JSON string
+	 * Returns MCP-compliant response with content array
 	 * Automatically filters large responses if AI model is configured
 	 * Uses currentQuery set via setQuery() for filtering context
 	 */
@@ -114,15 +225,17 @@ export abstract class BaseService {
 			numberFields?: string[];
 		},
 	): Promise<string> {
-		const markdownOutput = toMarkdown(data, options);
+		let markdownOutput = toMarkdown(data, options);
 
-		// Check token count and filter if necessary
 		const tokenLength = encoder.encode(markdownOutput).length;
-
 		logger.info(`Response token length: ${tokenLength}`);
 		logger.info(
-			`Need to filter: ${this.dataFilter && this.currentQuery && tokenLength > config.maxTokens ? "yes" : "no"}`,
+			`Response token need filtering: ${tokenLength > config.maxTokens ? "Yes" : "No"}`,
 		);
+		logger.info(
+			`User query for filtering: ${this.currentQuery ? "Yes" : "No"}`,
+		);
+		logger.info(`Data filter configured: ${this.dataFilter ? "Yes" : "No"}`);
 
 		if (
 			tokenLength > config.maxTokens &&
@@ -130,25 +243,24 @@ export abstract class BaseService {
 			this.currentQuery
 		) {
 			try {
-				// Convert data to JSON string for filtering
 				const jsonData = JSON.stringify(data);
 				const filteredJson = await this.dataFilter.filter(
 					jsonData,
 					this.currentQuery,
 				);
 
-				logger.info("Successfully filtered response data");
-				logger.info(`New token length: ${encoder.encode(filteredJson).length}`);
-
-				// Format the filtered data
-				return toMarkdown(JSON.parse(filteredJson), {
+				markdownOutput = toMarkdown(JSON.parse(filteredJson), {
 					title: options?.title,
 					currencyFields: options?.currencyFields,
 					numberFields: options?.numberFields,
 				});
+
+				const tokenLength = encoder.encode(markdownOutput).length;
+				logger.info(`New Response token length: ${tokenLength}`);
+
+				return markdownOutput;
 			} catch (error) {
 				console.error("Error filtering response:", error);
-				// Return original if filtering fails
 				return markdownOutput;
 			}
 		}
