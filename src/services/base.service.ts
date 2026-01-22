@@ -10,7 +10,7 @@ import cl100k_base from "js-tiktoken/ranks/cl100k_base";
 import { config } from "../config.js";
 import { env } from "../env.js";
 import { LLMDataFilter } from "../lib/utils/data-filter.js";
-import { createChildLogger } from "../lib/utils/index.js";
+import { createChildLogger, extractErrorMessage } from "../lib/utils/index.js";
 import { toMarkdown } from "../lib/utils/markdown-formatter.js";
 
 const logger = createChildLogger("DeBank MCP Base Service");
@@ -90,15 +90,7 @@ export abstract class BaseService {
 			});
 			return response.data;
 		} catch (error: unknown) {
-			if (axios.isAxiosError(error)) {
-				const errorPayload = error.response?.data ?? error.message;
-				const errorMessage =
-					typeof errorPayload === "string"
-						? errorPayload
-						: JSON.stringify(errorPayload);
-				throw new Error(errorMessage);
-			}
-			throw error instanceof Error ? error : new Error(String(error));
+			throw extractErrorMessage(error);
 		}
 	}
 
@@ -119,15 +111,7 @@ export abstract class BaseService {
 			const response = await axios.get<T>(url, { headers });
 			return response.data;
 		} catch (error: unknown) {
-			if (axios.isAxiosError(error)) {
-				const errorPayload = error.response?.data ?? error.message;
-				const errorMessage =
-					typeof errorPayload === "string"
-						? errorPayload
-						: JSON.stringify(errorPayload);
-				throw new Error(errorMessage);
-			}
-			throw error instanceof Error ? error : new Error(String(error));
+			throw extractErrorMessage(error);
 		}
 	}
 
@@ -156,15 +140,7 @@ export abstract class BaseService {
 			});
 			return response.data;
 		} catch (error: unknown) {
-			if (axios.isAxiosError(error)) {
-				const errorPayload = error.response?.data ?? error.message;
-				const errorMessage =
-					typeof errorPayload === "string"
-						? errorPayload
-						: JSON.stringify(errorPayload);
-				throw new Error(errorMessage);
-			}
-			throw error instanceof Error ? error : new Error(String(error));
+			throw extractErrorMessage(error);
 		}
 	}
 
@@ -181,15 +157,7 @@ export abstract class BaseService {
 			const response = await axios.post<T>(url, body, { headers });
 			return response.data;
 		} catch (error: unknown) {
-			if (axios.isAxiosError(error)) {
-				const errorPayload = error.response?.data ?? error.message;
-				const errorMessage =
-					typeof errorPayload === "string"
-						? errorPayload
-						: JSON.stringify(errorPayload);
-				throw new Error(errorMessage);
-			}
-			throw error instanceof Error ? error : new Error(String(error));
+			throw extractErrorMessage(error);
 		}
 	}
 
@@ -255,8 +223,8 @@ export abstract class BaseService {
 					numberFields: options?.numberFields,
 				});
 
-				const tokenLength = encoder.encode(markdownOutput).length;
-				logger.info(`New Response token length: ${tokenLength}`);
+				const filteredTokenLength = encoder.encode(markdownOutput).length;
+				logger.info(`New Response token length: ${filteredTokenLength}`);
 
 				return markdownOutput;
 			} catch (error) {
