@@ -1,6 +1,6 @@
 {
 	"name": "@iqai/mcp-debank",
-	"version": "0.0.1",
+	"version": "0.1.0",
 	"description": "Standalone MCP server for DeBank data access",
 	"main": "dist/index.js",
 	"type": "module",
