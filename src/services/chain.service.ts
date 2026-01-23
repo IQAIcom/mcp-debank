@@ -48,7 +48,7 @@ export class ChainService extends BaseService {
 	async getGasPrices(args: { chain_id: string }): Promise<string> {
 		try {
 			const data = await this.fetchWithToolConfig<GasMarket>(
-				`${this.baseUrl}/gas_market?chain_id=${args.chain_id}`,
+				`${this.baseUrl}/wallet/gas_market?chain_id=${args.chain_id}`,
 				config.gasPriceLifeTime,
 			);
 			return await this.formatResponse(data, {
