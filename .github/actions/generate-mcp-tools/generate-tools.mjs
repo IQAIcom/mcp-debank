@@ -141,12 +141,15 @@ function parseZodParams(content) {
 	const paramRegex =
 		/(\w+):\s*z\s*\.\s*(\w+)\s*\(\s*\)([\s\S]*?)(?=(?:\w+:\s*z\s*\.)|$)/g;
 
-	let match;
-	while ((match = paramRegex.exec(content)) !== null) {
-		const [fullMatch, paramName, zodType, chainedMethods] = match;
+	let match = paramRegex.exec(content);
+	while (match !== null) {
+		const [, paramName, zodType, chainedMethods] = match;
 
 		// Skip internal parameters
-		if (paramName.startsWith("_")) continue;
+		if (paramName.startsWith("_")) {
+			match = paramRegex.exec(content);
+			continue;
+		}
 
 		// Check if optional
 		const isOptional =
@@ -172,6 +175,8 @@ function parseZodParams(content) {
 			required: !isOptional,
 			description,
 		});
+
+		match = paramRegex.exec(content);
 	}
 
 	return params;
