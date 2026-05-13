@@ -358,7 +358,18 @@ So both side effects are unconditional under the default surface — `execute` f
 **Testing the laziness in an ESM project.** The package is `"type": "module"` ([package.json:6](../../../package.json#L6)), so `require.cache` is not the right probe — ESM uses the loader's module map, not CommonJS's cache. Two stronger tests, neither of which mutates project metadata:
 
 1. **`vi.mock("isolated-vm", ...)` with a spy.** Mock the module to throw on import, then import the server entry and run server startup. Startup must complete without the mock being triggered. After invoking `execute`, the mock fires. Asserts that the dynamic-import boundary is the only entry point.
-2. **Custom-loader smoke test.** A child-process test that spawns `node --import ./tests/integration/no-isolated-vm.loader.mjs dist/index.js --legacy-tools`. The loader is an ESM resolve hook that throws `ERR_MODULE_NOT_FOUND` whenever the specifier is `isolated-vm`. The server must reach `server.start({transportType: "stdio"})` and respond to a `search_docs` call over stdio. Any `execute` call returns the lazy-load error from §4.4. The loader never modifies `package.json` or `pnpm-lock.yaml`, and isolates the failure to one test run — no `pnpm rm`.
+2. **Custom-loader smoke test.** A child-process test that spawns `node --import ./tests/integration/no-isolated-vm.loader.mjs dist/index.js --legacy-tools` with a **sanitized env**. The Vitest `vi.mock("dotenv")` does *not* extend to spawned children — they run real `dotenv.config()` at startup, which would load the developer's `.env` and could trigger the Gemini cache init via `GOOGLE_GENERATIVE_AI_API_KEY`. The spawn options pass an explicit `env` object containing only the minimum:
+   ```ts
+   spawn("node", ["--import", "./tests/integration/no-isolated-vm.loader.mjs", "dist/index.js", "--legacy-tools"], {
+     env: {
+       PATH: process.env.PATH,
+       NODE_ENV: "test",
+       DEBANK_API_KEY: "test-key",
+       DOTENV_CONFIG_PATH: "/dev/null",   // belt-and-braces: even if env.ts later honors this, point it nowhere
+     },
+   });
+   ```
+   With no real `.env` keys in the child's env block, `dotenv.config()` still reads `./.env` from the cwd — so the spawn also sets `cwd` to a temp directory (`fs.mkdtemp`'d under `os.tmpdir()`) so the dotenv search finds no file. The loader hook ensures `isolated-vm` resolution fails; the server must reach `server.start({transportType: "stdio"})` and respond to a `search_docs` call over stdio. Any `execute` call returns the lazy-load error from §4.4. The loader never modifies `package.json` or `pnpm-lock.yaml`.
 
 Both tests live in `tests/integration/lazy-isolated-vm.test.ts`; the loader is in `tests/integration/no-isolated-vm.loader.mjs`.
 
@@ -507,11 +518,11 @@ Add `vitest` + `@vitest/coverage-v8`. Tests colocated as `*.test.ts`. Add `"test
 | Module | Coverage |
 |---|---|
 | `execute/sandbox.ts` | isolate creation/dispose; 30 s isolate timeout; 5 s per-call host timeout (AbortController fires); 128 MB cap; blocklist catches `process.`, `require(`, `import(`, `eval(`; TS-syntax rejection produces helpful error message; ExternalCopy round-trip preserves shape |
-| `execute/client.ts` | proxy forwards to mocked service `*Raw()` methods; raw JSON returned (no markdown); errors propagate; **all three resolver helpers callable from inside the sandbox**. Tests `vi.mock("../../src/lib/entity-resolver", ...)` with a fixed fake so no real Gemini call is ever made: `debank.resolveChain("BSC")` → `"bsc"` (mock returns `"bsc"`), `debank.resolveChains("Ethereum, Polygon")` → `"eth,matic"` (mock returns the comma-joined result; null-on-any-fail branch tested separately), `debank.resolveWrappedToken("WETH", "eth")` → the wrapped token address from [chains.ts](../../../src/enums/chains.ts) (this helper is pure — no LLM — so no mock needed; tests cover `null` for unknown chain ID and `null` for chain without a wrapped token). The point of these tests is that the sandbox proxy *forwards* the calls correctly; resolver accuracy itself is not tested here. |
+| `execute/client.ts` | proxy forwards to mocked service `*Raw()` methods; raw JSON returned (no markdown); errors propagate; **all three resolver helpers callable from inside the sandbox**. Tests `vi.mock("../../src/lib/entity-resolver.js", ...)` (the `.js` extension is required — this NodeNext codebase imports runtime modules with `.js` specifiers per [src/tools/index.ts:7](../../../src/tools/index.ts#L7), and Vitest matches the mock specifier verbatim against the implementation's import string) with a fixed fake so no real Gemini call is ever made: `debank.resolveChain("BSC")` → `"bsc"` (mock returns `"bsc"`), `debank.resolveChains("Ethereum, Polygon")` → `"eth,matic"` (mock returns the comma-joined result; null-on-any-fail branch tested separately), `debank.resolveWrappedToken("WETH", "eth")` → the wrapped token address from [chains.ts](../../../src/enums/chains.ts) (this helper is pure — no LLM — so no mock needed; tests cover `null` for unknown chain ID and `null` for chain without a wrapped token). The point of these tests is that the sandbox proxy *forwards* the calls correctly; resolver accuracy itself is not tested here. |
 | `services/*.service.ts` | each new `*Raw()` method returns parsed JSON; **byte-identical markdown regression for all 31 methods** driven by a shared fixture loader — covers every response-shape variant present in [src/types.ts](../../../src/types.ts): single-object (e.g. `getChain`), flat array (e.g. `getListTokenInformation`, `getUserChainNetCurve` ← returns `NetCurvePoint[]` directly per [user.service.ts:424](../../../src/services/user.service.ts#L424)), nested object containing array (only `getUserTotalNetCurve` returns `{usd_value_list: NetCurvePoint[]}`), and POST body result (`preExecTransaction`, `explainTransaction`). **Single-version harness, not dual-version:** before any service refactor, run each method against its DeBank-API JSON fixture under `tests/fixtures/services/` and commit the resulting markdown to `tests/snapshots/services/<method>.md`. After the refactor, the test asserts `await service.getX(args)` equals that committed snapshot. The snapshot files freeze v0.1's behavior; the running code is always v0.2. |
 | `search-docs/index-builder.ts` | given a sample `tool-metadata.ts` array, produces correct `MethodEntry[]`; Zod → JSON schema conversion runs; cookbook markdown picked up; importing the builder produces no side effects (no `chainService` constructed, no Gemini cache call) |
 | `search-docs/tool.ts` | MiniSearch ordering for "get token balance", "explain tx", "polygon nfts"; `detail=verbose` returns markdown; length cap respected; empty + no-match hint shapes |
-| `mcp/tools.ts` (`debank_resolve`) | `vi.mock("../../src/lib/entity-resolver")` returns a stub: `"Binance Smart Chain"` → `"bsc"`, `"ETH"` → `"eth"`, anything else → `null`. The unit test asserts the tool's payload shape (`{resolved: "bsc"}` vs. `{resolved: null, error: "Could not resolve '<name>'…"}`), not the resolver's classifier accuracy. Real-resolver coverage is out of scope — Gemini calls are not exercised in the automated suite. |
+| `mcp/tools.ts` (`debank_resolve`) | `vi.mock("../../src/lib/entity-resolver.js")` (the `.js` extension matches the runtime import string — see the `execute/client.ts` row above for the same rule) returns a stub: `"Binance Smart Chain"` → `"bsc"`, `"ETH"` → `"eth"`, anything else → `null`. The unit test asserts the tool's payload shape (`{resolved: "bsc"}` vs. `{resolved: null, error: "Could not resolve '<name>'…"}`), not the resolver's classifier accuracy. Real-resolver coverage is out of scope — Gemini calls are not exercised in the automated suite. |
 
 ### 5.3 Integration tests (mock DeBank API + isolated env)
 
@@ -521,37 +532,37 @@ Add `vitest` + `@vitest/coverage-v8`. Tests colocated as `*.test.ts`. Add `"test
 // tests/integration/setup.ts (loaded via vitest config setupFiles)
 import { vi } from "vitest";
 
-// 1. Neutralize dotenv BEFORE env.ts is imported. Default dotenv.config() does
-//    NOT override already-set env vars but DOES populate keys that are undefined
-//    from .env. A developer's local .env could re-introduce IQ_GATEWAY_* or
-//    GOOGLE_GENERATIVE_AI_API_KEY between our `delete` calls and the import of
-//    src/env.ts. Mocking dotenv to a no-op closes that loophole.
+// 1. Neutralize dotenv BEFORE env.ts is imported. Default dotenv.config()
+//    populates keys that are undefined from a .env file — so a `delete`
+//    without this mock would silently re-introduce IQ_GATEWAY_*,
+//    GOOGLE_GENERATIVE_AI_API_KEY, etc. from a developer's local .env.
 vi.mock("dotenv", () => ({ config: () => ({ parsed: {} }) }));
 
-// 2. Stub the env values env.ts actually validates. vi.stubEnv handles
-//    Vitest's per-worker isolation; the values are auto-restored between tests.
-vi.stubEnv("DEBANK_API_KEY", "test-key");
-vi.stubEnv("IQ_GATEWAY_URL", "");
-vi.stubEnv("IQ_GATEWAY_KEY", "");
-vi.stubEnv("GOOGLE_GENERATIVE_AI_API_KEY", "");
-vi.stubEnv("OPENROUTER_API_KEY", "");
-// Note: env.ts uses `z.string().min(1).optional()` for gateway/LLM keys — an
-// empty string fails .min(1) and the field is then `undefined` after parsing,
-// matching the "unset" branch in base.service.ts:55 and entity-resolver.ts.
+// 2. Set the one required env var and delete the rest. Empty strings are
+//    NOT a valid alternative here: env.ts uses `z.url().optional()` and
+//    `z.string().min(1).optional()`, both of which REJECT empty strings and
+//    fail the parse. Only `undefined` resolves to the optional "unset"
+//    branch — which means `delete`, not stub-to-"".
+process.env.DEBANK_API_KEY = "test-key";
+delete process.env.IQ_GATEWAY_URL;
+delete process.env.IQ_GATEWAY_KEY;
+delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+delete process.env.OPENROUTER_API_KEY;
 ```
 
 Reasoning:
-- [env.ts:4](../../../src/env.ts#L4) calls `dotenv.config()` at module load. Without the `vi.mock("dotenv")` step, a developer's `.env` file leaks into the test process between our env stubs and env.ts import.
+- [env.ts:4](../../../src/env.ts#L4) calls `dotenv.config()` at module load. The `vi.mock("dotenv")` step closes the loophole where a developer's `.env` re-populates a `delete`-d key when env.ts imports.
 - [env.ts:18-29](../../../src/env.ts#L18-L29) fails `import` unless `DEBANK_API_KEY` or both `IQ_GATEWAY_*` are set. The dummy `DEBANK_API_KEY` satisfies the refine.
-- [base.service.ts:55](../../../src/services/base.service.ts#L55) routes through IQ Gateway whenever `IQ_GATEWAY_URL` + `IQ_GATEWAY_KEY` are both present. Forcing them to empty strings (which the Zod `.min(1)` rejects → optional field becomes `undefined`) keeps the direct-fetch path that MSW intercepts.
-- `GOOGLE_GENERATIVE_AI_API_KEY` + `OPENROUTER_API_KEY` empty for the same reason — no accidental LLM calls.
-- **Import order matters.** `setupFiles` runs before any test file's imports, and the `vi.mock` call is hoisted by Vitest above all imports in the setup file itself. By the time the first test imports a service, dotenv is already neutered and env vars are stubbed.
+- [env.ts:8-9](../../../src/env.ts#L8-L9) types `IQ_GATEWAY_URL` as `z.url().optional()` — empty string fails URL validation, so `vi.stubEnv("IQ_GATEWAY_URL", "")` would crash env.ts at parse time. The other optional fields use `z.string().min(1).optional()` and reject empty strings the same way. Hence `delete`, not `stubEnv("")`.
+- [base.service.ts:55](../../../src/services/base.service.ts#L55) routes through IQ Gateway whenever both gateway vars are present. With them deleted, the direct-fetch path runs and MSW intercepts.
+- `GOOGLE_GENERATIVE_AI_API_KEY` + `OPENROUTER_API_KEY` deleted to prevent accidental LLM calls.
+- **Import order matters.** `setupFiles` runs before any test file's imports, and `vi.mock` is hoisted above the file's own imports. By the time the first test imports a service, dotenv is mocked and env vars are pruned.
 
 Use `msw` to mock `pro-openapi.debank.com`. One test per flow:
 
 - `execute` happy path → inner `{ok: true, result: ...}`, envelope `isError: false`.
 - `execute` parallel calls → both succeed.
-- `execute` with `debank.resolveChain` inside — **mock the resolver**, not Gemini. Use `vi.mock("../../src/lib/entity-resolver", () => ({ resolveChain: async (n: string) => n === "Polygon" ? "matic" : null, ... }))`. Then assert: input `"Polygon"` → resolved `"matic"` → balance call uses `chain_id: "matic"`. No real LLM call ever made.
+- `execute` with `debank.resolveChain` inside — **mock the resolver**, not Gemini. Use `vi.mock("../../src/lib/entity-resolver.js", () => ({ resolveChain: async (n: string) => n === "Polygon" ? "matic" : null, ... }))`. The `.js` specifier matches the runtime import string used throughout the codebase ([src/tools/index.ts:7](../../../src/tools/index.ts#L7)). Then assert: input `"Polygon"` → resolved `"matic"` → balance call uses `chain_id: "matic"`. No real LLM call ever made.
 - `execute` with intentional throw → inner `{ok: false, error: ...}`, envelope `isError: true`.
 - `execute` with TS syntax → friendly TS-rejection error message.
 - `execute` with a host call that hangs (msw delays >5 s) → per-call timeout fires, inner `{ok: false}` mentions "timed out".
