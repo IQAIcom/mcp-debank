@@ -46,7 +46,9 @@ Prior analysis identified that the gaps DeBank fills today (LLM entity resolutio
 
 ## §1. Architecture
 
-A new `src/mcp/` layer sits between [src/index.ts](../../../src/index.ts) and the existing [src/services/](../../../src/services/). It owns the four new MCP tools and the curated instructions blob. The services, [entity-resolver](../../../src/lib/entity-resolver.ts), [IQ Gateway integration](../../../src/services/base.service.ts), markdown formatter, and JQ filter are unchanged — consumed by both the sandbox and the legacy path.
+A new `src/mcp/` layer sits between [src/index.ts](../../../src/index.ts) and the existing [src/services/](../../../src/services/). It owns the four new MCP tools and the curated instructions blob. Unchanged supporting code:
+- **Services**, **entity-resolver**, and **IQ Gateway integration** are consumed by both the sandbox path (via `*Raw()`) and the legacy 28-tool path.
+- **Markdown formatter** (`toMarkdown`) and **JQ filter** (`LLMDataFilter`) are consumed **only by the legacy path** — they run inside the existing `*()` methods after `*Raw()` returns. Sandbox calls go directly through `*Raw()` and return parsed JSON, never touching `formatResponse`. Implementers must not call `toMarkdown` or `LLMDataFilter` from inside `*Raw()` or from the sandbox proxy; doing so violates the raw-JSON contract for `execute`.
 
 ```
 src/
@@ -276,6 +278,8 @@ The isolate runs in the main Node thread (`isolated-vm` provides V8-level isolat
 
 The builder walks the metadata array, converts each `parameters` Zod schema to JSON schema, pulls hand-written cookbook entries from `src/mcp/search-docs/cookbook/*.md`, and writes `embedded-index.ts` exporting `const ENTRIES: MethodEntry[]`. The runtime constructs MiniSearch with the same options CoinGecko uses: `prefix: true, fuzzy: 0.1, boost: {name: 5, qualified: 3, summary: 2}`.
 
+**The `_userQuery` parameter is stripped from search results.** Every current tool definition includes a `_userQuery: z.string().optional()` field (e.g., [src/tools/index.ts:55-57](../../../src/tools/index.ts#L55-L57)) that the legacy path uses to seed JQ-filter context via `setQueryFromArgs` ([src/tools/index.ts:23-32](../../../src/tools/index.ts#L23-L32)). That parameter is meaningless to the sandbox path — `*Raw()` methods have no concept of `setQuery`, and `LLMDataFilter` doesn't run there. Teaching agents to pass `_userQuery` from inside `execute` would be misleading. **Rule:** when `index-builder.ts` converts the `parameters` Zod schema to JSON schema for indexing and display, it drops any key starting with an underscore (currently just `_userQuery`; the prefix convention catches future internal fields too). The legacy `tool-handlers.ts` registration keeps `_userQuery` in the schema it hands to FastMCP — that's where the field actually does work. Tests assert the indexed `params` field for `debank_get_chain` contains `id` but not `_userQuery`.
+
 **The handler module** (`src/mcp/legacy/tool-handlers.ts`) joins each metadata entry to its service singleton using `legacyMethodPath` at server-start time — keeping side effects out of the metadata file. The sandbox proxy (`src/mcp/execute/client.ts`) joins using `sandboxMethodPath`.
 
 ### 2.4 Convenience tools — `src/mcp/tools.ts`
@@ -331,7 +335,7 @@ Two distinct module-load side effects we have to account for:
 | Service singletons + OpenRouter AI model wiring | `src/services/index.ts` ([:22-34](../../../src/services/index.ts#L22-L34)) | `execute`, `debank_get_supported_chain_list`, legacy 28 |
 | Gemini context cache init (`initializeCacheManager()` fire-and-forget) | `src/lib/cache/cache-manager.ts` ([:51-53](../../../src/lib/cache/cache-manager.ts#L51-L53)), reached transitively when anything imports `src/lib/entity-resolver.ts` ([:3](../../../src/lib/entity-resolver.ts#L3)) | `debank_resolve` (directly), legacy 28 (transitively via tool-handlers) |
 
-So both side effects are unconditional under the default surface — `execute` forces services, `debank_resolve` forces the entity resolver and through it the Gemini cache. Phase one preserves today's eager-at-module-load behavior; the only thing the `--legacy-tools` flag toggles is the additional import of `src/mcp/legacy/tool-handlers.ts` to register the 28 handlers with FastMCP (no new side effects beyond what's already loaded). The `isolated-vm` runtime is the one piece that stays lazy.
+So both side effects are unconditional under the default surface — `execute` forces services, `debank_resolve` forces the entity resolver and through it the Gemini cache. Phase one preserves today's eager-at-module-load behavior; the only thing the `--legacy-tools` flag toggles is the additional import of `src/mcp/legacy/tool-handlers.ts` to register **the 27 legacy handlers that aren't already in the default surface** (i.e., all 28 minus `debank_get_supported_chain_list`, which is already registered as a default convenience tool — see step 7 in the sequence below). No new module-load side effects since services + resolver are already loaded. The `isolated-vm` runtime is the one piece that stays lazy.
 
 **Cold-start sequence:**
 
@@ -345,7 +349,7 @@ So both side effects are unconditional under the default surface — `execute` f
    - **No `GOOGLE_GENERATIVE_AI_API_KEY`** — `google()` throws on first call; the resolver's catch block returns `null` ([base-resolver.ts:62-65](../../../src/lib/resolvers/base-resolver.ts#L62-L65)). Resolution stops working entirely; the agent must pass canonical chain IDs. **This is not a fallback we're adding** — it's the existing behavior of v0.1's resolver. Killing the Gemini dependency is the deferred sub-project in §7.
 6. Initialize MiniSearch from `embedded-index.ts` (one in-process index, no I/O after this).
 7. Register the four default tools: `execute`, `search_docs`, `debank_resolve`, `debank_get_supported_chain_list`.
-8. If `--legacy-tools` or `DEBANK_MCP_LEGACY=1`: `import("./mcp/legacy/tool-handlers.js")` and register the 28 handlers (no new module-load side effects since services + resolver are already loaded).
+8. If `--legacy-tools` or `DEBANK_MCP_LEGACY=1`: `import("./mcp/legacy/tool-handlers.js")` and register **27 of the 28 legacy handlers** — explicitly skipping `debank_get_supported_chain_list` because step 7 already registered the same tool name as a default convenience tool. FastMCP rejects duplicate tool names with an error; the skip avoids that. Implementation: filter the legacy handler array by `name !== "debank_get_supported_chain_list"` at registration time. (No new module-load side effects since services + resolver are already loaded.)
 9. `server.start({transportType: "stdio"})`.
 10. **First `execute` call**: load the `isolated-vm` Node addon if not already loaded, construct a fresh `Isolate` for the call, and dispose it on completion. **Each subsequent `execute` call constructs its own fresh `Isolate`** — there is no shared/pooled isolate.
 
