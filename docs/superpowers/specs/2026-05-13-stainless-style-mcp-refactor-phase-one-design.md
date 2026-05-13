@@ -244,7 +244,7 @@ async getUserTotalNetCurve(args): Promise<string> {
 
 **Invariant:** `getUserTotalNetCurve` is the only service method that unwraps an API response before formatting. All other methods pass their raw fetch result to `formatResponse` unchanged; their `*Raw()` and markdown methods therefore share the same data shape. (`getUserChainNetCurve` looks similar but is not transformed — DeBank returns `NetCurvePoint[]` directly for that endpoint per [user.service.ts:424](../../../src/services/user.service.ts#L424).)
 
-**Step 3: wire the proxy with `ivm.Callback({ async: true })` and an end-to-end AbortController.** Each `*Raw()` method is exposed inside the isolate as an `ivm.Callback`, **not** as a `Reference`. The distinction matters per the [isolated-vm npm docs](https://www.npmjs.com/package/isolated-vm): a `Reference` requires guest-side `.apply(...)` / `.applySync(...)` invocation (which would force us to ship a hand-written guest-side wrapper for every method); a `Callback` constructed with `{ async: true }` is transferred into the guest context as a **plain async function** the agent's `run(debank)` code can call natively — `await debank.user.getUserChainBalanceRaw({chain_id, id})`.
+**Step 3: wire the proxy with `ivm.Callback({ async: true })` and an end-to-end AbortController.** Each service `*Raw()` method is exposed inside the isolate as an `ivm.Callback` under its **agent-facing name** (no `Raw` suffix), **not** as a `Reference`. The distinction matters per the [isolated-vm npm docs](https://www.npmjs.com/package/isolated-vm): a `Reference` requires guest-side `.apply(...)` / `.applySync(...)` invocation (which would force us to ship a hand-written guest-side wrapper for every method); a `Callback` constructed with `{ async: true }` is transferred into the guest context as a **plain async function** the agent's `run(debank)` code can call natively — `await debank.user.getUserChainBalance({chain_id, id})` (no `Raw` — that's a host-side implementation detail).
 
 Wiring per method (host side, sketch). Note the asymmetry between the **guest-facing name** (`getUserChainBalance` — no `Raw` suffix) and the **host service method** it dispatches to (`getUserChainBalanceRaw`):
 
@@ -579,6 +579,23 @@ No tests exist in the repo today. Phase one introduces them.
 
 Add `vitest` + `@vitest/coverage-v8`. Tests colocated as `*.test.ts`. Add `"test": "vitest run"` and `"test:watch": "vitest"` to [package.json](../../../package.json).
 
+**A `vitest.config.ts` at the repo root is required**, not optional. Without it Vitest doesn't know to load the setup file specified in §5.3, and the dotenv mock / env-var pruning silently doesn't run — meaning a developer's local `.env` would leak into the test process. Minimum required config:
+
+```ts
+// vitest.config.ts
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    setupFiles: ["./tests/integration/setup.ts"],
+    // Optional but recommended: keep unit/integration in one runner; tag-based filtering via test.include is fine
+    include: ["src/**/*.test.ts", "tests/**/*.test.ts"],
+  },
+});
+```
+
+The `setupFiles` entry is the load-bearing line — every other guarantee in §5.3 ("dotenv neutralized before service import") falls apart without it.
+
 ### 5.2 Unit tests (no network)
 
 | Module | Coverage |
@@ -659,11 +676,14 @@ Today's [package.json:14](../../../package.json#L14) is `"build": "tsc && shx ch
     "build:instructions": "tsx scripts/build-instructions.ts",
     "prebuild":           "pnpm run build:docs && pnpm run build:instructions",
     "build":              "tsc && shx chmod +x dist/index.js",
+    "pretest":            "pnpm run build",
     "test":               "vitest run",
     "test:watch":         "vitest"
   }
 }
 ```
+
+The `pretest` script is required because the lazy-`isolated-vm` smoke test in §3.1 step 10 spawns `node dist/index.js` against a built entrypoint. Without `pretest`, CI's `pnpm test` would either fail on a missing `dist/` or, worse, run against a stale `dist/` from a previous build and silently pass with old code.
 
 - `scripts/build-docs-index.ts` — the index builder from §2.3. Imports the side-effect-free `src/mcp/legacy/tool-metadata.ts` and writes `src/mcp/search-docs/embedded-index.ts`.
 - `scripts/build-instructions.ts` — reads `src/mcp/instructions/instructions.md` and writes `src/mcp/instructions/instructions.generated.ts`. Emits the content via `JSON.stringify(markdown)` (not a template literal) so embedded backticks, `${`, and code-block fences in the markdown can't break the generated TS. Output is literally `export const INSTRUCTIONS = ${JSON.stringify(markdown)};\n`.
