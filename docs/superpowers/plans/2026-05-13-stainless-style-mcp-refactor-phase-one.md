@@ -769,7 +769,9 @@ async getChainRaw(
 async getChain(args: { id: string }): Promise<string> {
   const data = await this.getChainRaw(args);
   try {
-    return await this.formatResponse(data, { title: "Chain Information" });
+    // v0.1 title uses data.name in a template literal — see chain.service.ts:27.
+    // Reproducing it byte-identical is what keeps the snapshot regression green.
+    return await this.formatResponse(data, { title: `Chain Information: ${data.name}` });
   } catch (error) {
     throw logAndWrapError(`Failed to format chain ${args.id} response`, error);
   }
@@ -797,14 +799,18 @@ async getGasPricesRaw(
 async getGasPrices(args: { chain_id: string }): Promise<string> {
   const data = await this.getGasPricesRaw(args);
   try {
-    return await this.formatResponse(data, { title: `Gas Prices (${args.chain_id})` });
+    // v0.1 options — chain.service.ts:54-57. Title format + numberFields must match.
+    return await this.formatResponse(data, {
+      title: `Gas Prices for Chain: ${args.chain_id}`,
+      numberFields: ["price", "front_tx_count", "estimated_seconds"],
+    });
   } catch (error) {
     throw logAndWrapError(`Failed to format gas prices for chain ${args.chain_id} response`, error);
   }
 }
 ```
 
-The types above (`ChainInfo` at [types.ts:13](../../../src/types.ts#L13), `GasMarket` at [types.ts:302](../../../src/types.ts#L302)) match the actual v0.1 definitions. Other services use `ProtocolInfo`, `TokenInfo`, `UserChainBalance`, etc. — always import from `../types.js`. URLs and titles must match v0.1 verbatim (the snapshots are the oracle).
+The types above (`ChainInfo` at [types.ts:13](../../../src/types.ts#L13), `GasMarket` at [types.ts:302](../../../src/types.ts#L302)) match the actual v0.1 definitions. **All `formatResponse` options (title strings, currencyFields, numberFields) must be copied byte-identical from the v0.1 method body** — the snapshots are the oracle. For each service refactor task (8–12), open the v0.1 method before editing, copy the entire `formatResponse(..., {...})` options object verbatim, then re-run the snapshot regression to confirm zero diff. Other services use `ProtocolInfo`, `TokenInfo`, `UserChainBalance`, etc. — always import from `../types.js`.
 
 - [ ] **Step 5: Re-run the snapshot regression**
 
@@ -1286,7 +1292,7 @@ describe("tool-handlers.legacyTools", () => {
 - [ ] **Step 3: Run the test**
 
 Run: `pnpm exec vitest run src/mcp/legacy/tool-handlers.test.ts`
-Expected: PASS, 3 tests.
+Expected: PASS, 4 tests (count, shape, dispatch, debank_get_chain regression).
 
 - [ ] **Step 4: Commit**
 
@@ -2580,6 +2586,11 @@ describe("execute integration", () => {
   }, 15_000);
 
   it("execute with debank.resolveChain inside (mocked resolver)", async () => {
+    // Earlier tests in this file already imported executeTool, which lazy-imports
+    // ./sandbox.js and ./client.js. Those caches the original (real) resolver
+    // module reference. vi.doMock alone wouldn't intercept the cached chain.
+    // Reset the module registry, install the mock, THEN re-import everything.
+    vi.resetModules();
     vi.doMock("../../src/lib/entity-resolver.js", async (importOriginal) => {
       const actual = await importOriginal<typeof import("../../src/lib/entity-resolver.js")>();
       return {
@@ -2592,15 +2603,21 @@ describe("execute integration", () => {
         HttpResponse.json({ usd_value: 99.9 }),
       ),
     );
-    // Re-import after the mock
-    const { executeTool: executeFresh } = await import("../../src/mcp/execute/tool.js");
-    const res = await executeFresh.execute({
-      code: `async function run(d) { const id = await d.resolveChain("Polygon"); return await d.user.getUserChainBalance({ id: "0xabc", chain_id: id }); }`,
-    });
-    const inner = JSON.parse(res.content[0]!.text);
-    expect(inner.ok).toBe(true);
-    expect(inner.result).toEqual({ usd_value: 99.9 });
-    vi.doUnmock("../../src/lib/entity-resolver.js");
+
+    try {
+      // Fresh import sees the mocked resolver because resetModules cleared
+      // the cache and doMock is now hoisted-ordered correctly.
+      const { executeTool: executeFresh } = await import("../../src/mcp/execute/tool.js");
+      const res = await executeFresh.execute({
+        code: `async function run(d) { const id = await d.resolveChain("Polygon"); return await d.user.getUserChainBalance({ id: "0xabc", chain_id: id }); }`,
+      });
+      const inner = JSON.parse(res.content[0]!.text);
+      expect(inner.ok).toBe(true);
+      expect(inner.result).toEqual({ usd_value: 99.9 });
+    } finally {
+      vi.doUnmock("../../src/lib/entity-resolver.js");
+      vi.resetModules();   // restore clean state for any test that runs after
+    }
   });
 });
 ```
@@ -2768,39 +2785,69 @@ describe("lazy isolated-vm", () => {
       },
     });
 
-    const ready = new Promise<void>((resolve, reject) => {
-      const onData = (buf: Buffer) => {
-        // FastMCP stdio prints the JSON-RPC handshake; presence of any non-empty
-        // output on stdout within 5s = server reached server.start.
-        if (buf.length > 0) resolve();
-      };
-      child.stdout.once("data", onData);
-      child.once("error", reject);
-      setTimeout(() => reject(new Error("server did not become ready within 5s")), 5_000);
+    // Drive the MCP stdio handshake explicitly. FastMCP stdio servers don't
+    // proactively announce ready; the client initiates `initialize`. Reading a
+    // line-delimited JSON-RPC response from stdout is the only reliable signal.
+    let stdoutBuf = "";
+    const responses: Record<number, unknown> = {};
+    const responseWaiters: Record<number, (val: unknown) => void> = {};
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutBuf += chunk.toString();
+      let nl: number;
+      while ((nl = stdoutBuf.indexOf("\n")) !== -1) {
+        const line = stdoutBuf.slice(0, nl).trim();
+        stdoutBuf = stdoutBuf.slice(nl + 1);
+        if (!line) continue;
+        try {
+          const msg = JSON.parse(line) as { id?: number; result?: unknown; error?: unknown };
+          if (typeof msg.id === "number") {
+            responses[msg.id] = msg;
+            responseWaiters[msg.id]?.(msg);
+          }
+        } catch {
+          /* not JSON — could be a log line on stderr-routed-to-stdout; ignore */
+        }
+      }
     });
 
-    // Send a tools/list request over stdio
-    const request = {
+    const stderrBuf: string[] = [];
+    child.stderr.on("data", (b: Buffer) => stderrBuf.push(b.toString()));
+
+    const send = (msg: object) => child.stdin.write(JSON.stringify(msg) + "\n");
+    const waitForId = (id: number, timeoutMs: number) =>
+      new Promise<unknown>((resolve, reject) => {
+        if (responses[id] !== undefined) return resolve(responses[id]);
+        responseWaiters[id] = resolve;
+        setTimeout(() => reject(new Error(`Timed out waiting for response id=${id}. stderr: ${stderrBuf.join("")}`)), timeoutMs);
+      });
+
+    // 1. initialize
+    send({
       jsonrpc: "2.0",
       id: 1,
-      method: "tools/list",
-      params: {},
-    };
-
-    await ready;
-    child.stdin.write(JSON.stringify(request) + "\n");
-
-    const response = await new Promise<string>((resolve, reject) => {
-      let buf = "";
-      child.stdout.on("data", (chunk: Buffer) => {
-        buf += chunk.toString();
-        if (buf.includes("\n")) resolve(buf);
-      });
-      setTimeout(() => reject(new Error("no response within 5s")), 5_000);
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "lazy-test", version: "1" },
+      },
     });
+    await waitForId(1, 5_000);
 
-    expect(response).toContain("execute");
-    expect(response).toContain("search_docs");
+    // 2. notifications/initialized (no id, no response)
+    send({ jsonrpc: "2.0", method: "notifications/initialized" });
+
+    // 3. tools/list — assert isolated-vm wasn't needed to register tools
+    send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+    const toolsResponse = await waitForId(2, 5_000) as { result?: { tools?: { name: string }[] } };
+    const toolNames = toolsResponse.result?.tools?.map((t) => t.name) ?? [];
+
+    expect(toolNames).toContain("execute");
+    expect(toolNames).toContain("search_docs");
+    expect(toolNames).toContain("debank_resolve");
+    expect(toolNames).toContain("debank_get_supported_chain_list");
+    // legacy tools also registered because --legacy-tools was passed
+    expect(toolNames).toContain("debank_get_user_chain_balance");
 
     child.kill();
   }, 30_000);
