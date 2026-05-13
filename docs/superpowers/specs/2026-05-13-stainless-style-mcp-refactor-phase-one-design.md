@@ -169,12 +169,12 @@ private async fetchDirect<T>(url: string, options?: RequestOptions): Promise<T> 
 
 Default `options = undefined` ⇒ axios behaves exactly as today ⇒ legacy path is byte-identical.
 
-**Step 2: split each service method, preserving the existing `try/catch` + `logAndWrapError` pattern.** Today each method wraps fetch + format in a single try/catch with a contextual message (e.g. [token.service.ts:28-43](../../../src/services/token.service.ts#L28-L43): `"Failed to fetch token ${args.id} on chain ${args.chain_id}"`). After splitting, the catch moves into the `*Raw()` method — that's where errors are *produced* (HTTP, network, parse). The markdown wrapper becomes a one-liner with no try/catch of its own; if `formatResponse` ever throws on valid input the error bubbles unchanged. This keeps the contextual logging identical for both consumers (legacy tool and sandbox) and avoids duplicate catches:
+**Step 2: split each service method, preserving the existing `try/catch` + `logAndWrapError` pattern.** Today each method wraps both fetch and format in one try/catch with a contextual message (e.g. [token.service.ts:28-43](../../../src/services/token.service.ts#L28-L43): `"Failed to fetch token ${args.id} on chain ${args.chain_id}"`). To preserve that behavior **for both error sources** (network *and* formatter failures), the catch is split too: `*Raw()` owns the catch around the network call; the markdown wrapper keeps a thin catch around `formatResponse` using the same contextual message. Without that second catch, a `toMarkdown` failure would surface unwrapped and lose the service context — a silent behavior change for legacy callers.
 
 ```ts
 // In src/services/chain.service.ts
 class ChainService extends BaseService {
-  // NEW: public raw method — returns parsed JSON; owns the try/catch
+  // NEW: public raw method — returns parsed JSON; catches network errors
   async getChainRaw(
     args: { id: string },
     options?: RequestOptions,
@@ -190,17 +190,21 @@ class ChainService extends BaseService {
     }
   }
 
-  // EXISTING (refactored): public markdown method — thin wrapper, no try/catch
+  // EXISTING (refactored): public markdown method — catches formatter errors
   async getChain(args: { id: string }): Promise<string> {
-    const data = await this.getChainRaw(args);
-    return this.formatResponse(data, { title: "Chain Information" });
+    const data = await this.getChainRaw(args);  // network errors already wrapped here
+    try {
+      return await this.formatResponse(data, { title: "Chain Information" });
+    } catch (error) {
+      throw logAndWrapError(`Failed to format chain ${args.id} response`, error);
+    }
   }
 }
 ```
 
-The 28 legacy tools call `getChain` (no options ⇒ no timeout, current behavior). The sandbox calls `getChainRaw(args, { signal, timeout: 5000 })`. Both share the same network/cache code path and the same contextual error messages. The sandbox proxy adds a second wrapper layer that converts AbortController rejections into the `"DeBank call timed out after 5s: <method>"` message (see Step 3) — both messages can show up stacked, which is fine.
+The 28 legacy tools call `getChain` (no options ⇒ no timeout, current behavior). The sandbox calls `getChainRaw(args, { signal, timeout: 5000 })`. Both share the same network/cache code path and the same contextual error messages. The sandbox proxy adds a second wrapper layer that converts AbortController rejections into the `"DeBank call timed out after 5s: <method>"` message (see Step 3) — messages may stack, which is fine.
 
-**The refactor applies uniformly to all five services and all 28 methods.** Test plan §5.2 includes a regression test that the markdown returned by `getX()` is byte-identical to the v0.1 version for at least one method per service.
+**The refactor applies uniformly to all five services and all 28 methods.** Test plan §5.2 covers the regression with one byte-identical-markdown test per method (all 28), driven by a shared fixture loader so it's mechanical to maintain.
 
 **Step 3: wire the proxy with an end-to-end AbortController.** Each `*Raw()` method is exposed inside the isolate as an `isolated-vm` `Reference` to a host-side function. Per call:
 
@@ -319,6 +323,8 @@ So both side effects are unconditional under the default surface — `execute` f
 9. `server.start({transportType: "stdio"})`.
 10. **First `execute` call**: load the `isolated-vm` Node addon if not already loaded, construct a fresh `Isolate` for the call, and dispose it on completion. **Each subsequent `execute` call constructs its own fresh `Isolate`** — there is no shared/pooled isolate.
 
+**Implementation note — keeping the load truly lazy.** `isolated-vm` is a native addon; any synchronous `import "isolated-vm"` anywhere in the static import graph from `src/index.ts` loads the addon at startup, defeating step 10. The implementation **must** dynamic-import inside the execute handler — `const ivm = await import("isolated-vm")` on first call, cached in a module-level variable for subsequent calls. The same rule applies transitively: `src/mcp/execute/sandbox.ts` must not be statically imported by any module reachable from server startup; it is itself loaded via `await import()` inside the `execute` tool handler in `src/mcp/execute/tool.ts`. Tests verify this by importing the server entry and asserting `require.cache` does not contain `isolated-vm` until an `execute` call runs.
+
 ### 3.2 `execute` call
 
 Example query: "get my total balance on Polygon and BSC, return USD only."
@@ -430,7 +436,7 @@ In all failure cases the isolate is disposed, never reused. No server-side retry
 
 ### 4.3 `debank_resolve` failures
 
-- Gemini unreachable or no key → existing fallback path in [entity-resolver.ts](../../../src/lib/entity-resolver.ts) returns `null`. Tool returns `{resolved: null, error: "Could not resolve. Try the exact chain ID (eth, bsc, matic, …)."}`.
+- Gemini unreachable, no key, or genuinely unmatched input → resolver returns `null` (see §3.1 step 5 for the three resolver paths). Tool returns the same payload as the §2.4 no-match case: `{resolved: null, error: "Could not resolve '<name>' as a chain. Try the exact chain ID (eth, bsc, matic, arb, …)."}` — one canonical error string for tests to assert against.
 
 ### 4.4 Required-artifact failures
 
@@ -465,7 +471,7 @@ Add `vitest` + `@vitest/coverage-v8`. Tests colocated as `*.test.ts`. Add `"test
 |---|---|
 | `execute/sandbox.ts` | isolate creation/dispose; 30 s isolate timeout; 5 s per-call host timeout (AbortController fires); 128 MB cap; blocklist catches `process.`, `require(`, `import(`, `eval(`; TS-syntax rejection produces helpful error message; ExternalCopy round-trip preserves shape |
 | `execute/client.ts` | proxy forwards to mocked service `*Raw()` methods; raw JSON returned (no markdown); errors propagate; `debank.resolveChain` callable inside |
-| `services/*.service.ts` | each new `*Raw()` method returns parsed JSON; matching markdown-returning method still produces the same string as before (regression-test the legacy path) |
+| `services/*.service.ts` | each new `*Raw()` method returns parsed JSON; **byte-identical markdown regression for all 28 methods** driven by a shared fixture loader — covers every response-shape variant present in [src/types.ts](../../../src/types.ts) (single-object, flat array, nested array, POST body result, and the `data.usd_value_list` shape returned by `getUserTotalNetCurve` / `getUserChainNetCurve`). One mocked JSON fixture per method lives under `tests/fixtures/services/`. Test asserts `await service.getX(args)` equals the committed snapshot for both v0.1 (baseline captured pre-refactor) and v0.2 |
 | `search-docs/index-builder.ts` | given a sample `tool-metadata.ts` array, produces correct `MethodEntry[]`; Zod → JSON schema conversion runs; cookbook markdown picked up; importing the builder produces no side effects (no `chainService` constructed, no Gemini cache call) |
 | `search-docs/tool.ts` | MiniSearch ordering for "get token balance", "explain tx", "polygon nfts"; `detail=verbose` returns markdown; length cap respected; empty + no-match hint shapes |
 | `mcp/tools.ts` (`debank_resolve`) | "Binance Smart Chain" → "bsc"; "ETH" → "eth"; unknown → `{resolved: null}` |
