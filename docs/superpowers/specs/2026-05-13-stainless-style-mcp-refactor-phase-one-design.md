@@ -116,13 +116,12 @@ src/
 5. Run the script with explicit transfer options:
    ```ts
    const value = await script.run(context, {
-     timeout: 30_000,             // outer isolate budget
-     promise: true,               // await the IIFE's Promise on the host side
-     reference: false,            // do NOT return a Reference to the result
-     copy: true,                  // copy primitives/plain objects across the boundary
+     timeout: 30_000,   // outer isolate budget
+     promise: true,     // await the IIFE's Promise on the host side
+     copy: true,        // copy the resolved value across the V8 boundary
    });
    ```
-   Without `promise: true`, the host receives a Reference to the unresolved Promise — not the resolved JSON value. Without an explicit `copy` (or `externalCopy`) result mode, transferring complex returns can fail or come back as a Reference the host can't directly serialize. Same `TransferOptions` rules apply to each `ivm.Callback` return in §2.2 (where we use `new ivm.ExternalCopy(result)`). Reference: [isolated-vm TransferOptions](https://www.npmjs.com/package/isolated-vm).
+   Without `promise: true`, the host receives a Reference to the unresolved Promise — not the resolved JSON value. Without an explicit `copy` (or `externalCopy`) result mode, transferring complex returns can fail or come back as a Reference the host can't directly serialize. (`TransferOptions` flags are positive — there's no `reference: false`; you simply pick one of `copy`, `externalCopy`, or `reference` to set true.) Same `TransferOptions` rules apply to each `ivm.Callback` return in §2.2 (where we use `new ivm.ExternalCopy(result)`). Reference: [isolated-vm TransferOptions](https://www.npmjs.com/package/isolated-vm).
 
    Per-`debank.*` call host-side timeout is 5 s, enforced by the `AbortController` wiring in §2.2 — independent of and stricter than the 30 s outer script timeout.
 6. The `value` from step 5 is the script's return — already a plain JS structure on the host because of `copy: true`. Concatenate any captured `console.log/warn/error` lines from the host-side buffers.
@@ -247,7 +246,7 @@ async getUserTotalNetCurve(args): Promise<string> {
 
 **Step 3: wire the proxy with `ivm.Callback({ async: true })` and an end-to-end AbortController.** Each `*Raw()` method is exposed inside the isolate as an `ivm.Callback`, **not** as a `Reference`. The distinction matters per the [isolated-vm npm docs](https://www.npmjs.com/package/isolated-vm): a `Reference` requires guest-side `.apply(...)` / `.applySync(...)` invocation (which would force us to ship a hand-written guest-side wrapper for every method); a `Callback` constructed with `{ async: true }` is transferred into the guest context as a **plain async function** the agent's `run(debank)` code can call natively — `await debank.user.getUserChainBalanceRaw({chain_id, id})`.
 
-Wiring per method (host side, sketch):
+Wiring per method (host side, sketch). Note the asymmetry between the **guest-facing name** (`getUserChainBalance` — no `Raw` suffix) and the **host service method** it dispatches to (`getUserChainBalanceRaw`):
 
 ```ts
 import ivm from "isolated-vm";
@@ -256,15 +255,18 @@ const context = await isolate.createContext();
 await context.global.set("debank", new ivm.ExternalCopy({}).copyInto(), { release: true });
 
 await context.evalClosure(
+  // Install the AGENT-FACING name (no Raw suffix) on the guest's debank.user
   `globalThis.debank.user = globalThis.debank.user || {};
-   globalThis.debank.user.getUserChainBalanceRaw = $0;`,
+   globalThis.debank.user.getUserChainBalance = $0;`,
   [
     new ivm.Callback(
-      async (argsRef: ivm.Reference<unknown>) => {
-        const args = argsRef.copySync() as { chain_id: string; id: string };
+      // ivm.Callback arguments are COPIED into the host fn — not Reference objects.
+      // Per the isolated-vm Callback docs, the host receives plain JS values directly.
+      async (args: { chain_id: string; id: string }) => {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 5_000);
         try {
+          // Host-side dispatch calls the *Raw() method on the service singleton
           const result = await userService.getUserChainBalanceRaw(args, {
             signal: controller.signal,
             timeout: 5_000,
@@ -272,7 +274,7 @@ await context.evalClosure(
           return new ivm.ExternalCopy(result);   // explicit transfer wrapper for the return
         } catch (err) {
           if (controller.signal.aborted) {
-            throw new Error("DeBank call timed out after 5s: getUserChainBalanceRaw");
+            throw new Error("DeBank call timed out after 5s: getUserChainBalance");
           }
           throw err;
         } finally { clearTimeout(timer); }
@@ -283,10 +285,11 @@ await context.evalClosure(
 );
 ```
 
-- Args cross the V8 boundary as a `Reference` to an `ExternalCopy`; the Callback unwraps with `.copySync()` (or `.copy()` for deeply nested data).
+- **Naming asymmetry is deliberate.** The guest sees `debank.user.getUserChainBalance(args)` (matches `qualified` in metadata and the cookbook examples — the `Raw` suffix is an internal implementation detail). The host body invokes `userService.getUserChainBalanceRaw(args, opts)`. The metadata's `sandboxMethodPath` field (`"user.getUserChainBalanceRaw"`) is what the wiring code uses to look up the host method to call; the agent never types `Raw`.
+- **Args cross the V8 boundary by copy.** `ivm.Callback` automatically copies argument values into the host function — the host receives plain JS values, not `Reference` objects. No `.copySync()` needed.
 - The host body runs the service `*Raw()` with both `signal` (cancels the in-flight TCP/TLS request) and `timeout: 5000` (belt-and-braces backup on the response-read phase).
-- On abort/timeout, the error is rewritten as `"DeBank call timed out after 5s: <method>"`; other rejections propagate unchanged.
-- The return value is wrapped in `ivm.ExternalCopy` — that's the explicit transfer mode for results, matching the script-result transfer mode in §2.1 step 4.
+- On abort/timeout, the error is rewritten as `"DeBank call timed out after 5s: <method>"` using the agent-facing method name; other rejections propagate unchanged.
+- The return value is wrapped in `ivm.ExternalCopy` — that's the explicit transfer mode for results, matching the script-result transfer mode in §2.1 step 5.
 
 **Resolver helpers** (`debank.resolveChain`, `debank.resolveChains`, `debank.resolveWrappedToken`) are wired the same way: each is an `ivm.Callback`. `resolveChain` / `resolveChains` are async and use `{ async: true }`; `resolveWrappedToken` is synchronous (pure `chains.ts` lookup) so it uses `{ async: false }` (the default).
 
