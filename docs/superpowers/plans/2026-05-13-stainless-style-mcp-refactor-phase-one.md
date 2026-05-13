@@ -108,11 +108,13 @@ params: z.toJSONSchema(m.parameters),
 
 …and drop the `zod-to-json-schema` dependency.
 
-**Post-build sanity check (run after Task 15 produces `embedded-index.ts`):**
+**Post-`build:docs` sanity check (run after Task 15 produces `src/mcp/search-docs/embedded-index.ts`):**
+
+Use `tsx` to import the generated TypeScript source directly — that avoids the chicken-and-egg of needing `dist/` (a full `pnpm run build`) when only `build:docs` has run:
 
 ```bash
-node -e "
-import('./dist/mcp/search-docs/embedded-index.js').then(({ ENTRIES }) => {
+pnpm exec tsx -e "
+import('./src/mcp/search-docs/embedded-index.ts').then(({ ENTRIES }) => {
   const chain = ENTRIES.find(e => e.kind === 'method' && e.name === 'debank_get_chain');
   if (!chain) { console.error('debank_get_chain not in index'); process.exit(1); }
   const p = chain.params;
@@ -123,7 +125,7 @@ import('./dist/mcp/search-docs/embedded-index.js').then(({ ENTRIES }) => {
 "
 ```
 
-Expected: `ok`. Catches the silent-degradation scenario where the schema converter returns shape-but-no-fields.
+Expected: `ok`. Catches the silent-degradation scenario where the schema converter returns shape-but-no-fields. (The check runs against the just-emitted source — no stale `dist/` risk.)
 
 - [ ] **Step 4: Commit dep additions**
 
@@ -1119,14 +1121,11 @@ Open the current [src/tools/index.ts](src/tools/index.ts) and copy the `name`, `
 
 **Strip the `_userQuery` field from `parameters`**: every existing tool definition has `_userQuery: z.string().optional()` for the legacy JQ-filter context. Drop it. The spec §2.3 mandates that any underscore-prefixed parameter is removed from the metadata module; `_userQuery` is the only current one.
 
-- [ ] **Step 3: Add a smoke test for the metadata**
+- [ ] **Step 3: Add the in-process metadata test**
 
 Create `src/mcp/legacy/tool-metadata.test.ts`:
 
 ```ts
-import { spawnSync } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import { TOOL_METADATA } from "./tool-metadata.js";
 
@@ -1153,45 +1152,14 @@ describe("tool-metadata in-process checks", () => {
     }
   });
 });
-
-describe("tool-metadata side-effect-freeness", () => {
-  it("imports cleanly with NO env vars and NO service-module construction", () => {
-    // Spawning a child node process is the only way to test load-time
-    // side-effect-freeness honestly: the in-process tests have already imported
-    // tool-metadata.js at the top of this file (cached), and the vitest
-    // setupFiles always sets DEBANK_API_KEY so a transitive env.ts import
-    // wouldn't even fail. The child has its env scrubbed clean — if
-    // tool-metadata.ts accidentally imports services/index.ts, that imports
-    // env.ts, which fails the Zod refine and exits non-zero.
-    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-    const distPath = path.resolve(repoRoot, "dist/mcp/legacy/tool-metadata.js");
-    const result = spawnSync(
-      "node",
-      ["--input-type=module", "-e", `import { TOOL_METADATA } from "${distPath}"; process.stdout.write(String(TOOL_METADATA.length));`],
-      {
-        env: {
-          PATH: process.env.PATH!,
-          // Intentionally NO DEBANK_API_KEY, NO IQ_GATEWAY_*, NO Gemini key.
-          // If anything in tool-metadata's import graph touches env.ts, the
-          // Zod refine (env.ts:18-29) throws and the child exits non-zero.
-        },
-      },
-    );
-    expect(result.status).toBe(0);
-    expect(result.stdout.toString()).toBe("31");
-    // If this fails with a Zod parse error in stderr, tool-metadata.ts has
-    // accidentally imported a module that imports env.ts. Trace the import
-    // graph and remove the offending import.
-  });
-});
 ```
 
-Note: this test depends on `dist/mcp/legacy/tool-metadata.js` existing. `pretest` builds it, so the test must be run via `pnpm test` (not `pnpm exec vitest run ...` — that bypasses `pretest` and can either fail on a missing `dist/` or, worse, pass against stale compiled output).
+The child-process side-effect-freeness test that verifies `dist/mcp/legacy/tool-metadata.js` imports cleanly without env vars lives in a separate file (`src/mcp/legacy/tool-metadata.import.test.ts`) and is added in Task 30 Step 0 — it can't run here because `pnpm test` would fire `pretest` → `pnpm run build`, and `build:docs` + `build:instructions` don't exist until Tasks 15 and 16.
 
 - [ ] **Step 4: Run the test**
 
-Run: `pnpm test src/mcp/legacy/tool-metadata.test.ts`
-Expected: `pretest` builds `dist/`, then vitest runs — PASS, 4 tests (3 in-process + 1 child-process). Using `pnpm test` (not `pnpm exec vitest`) is required so `pretest` fires and the child-process test sees a fresh `dist/mcp/legacy/tool-metadata.js`.
+Run: `pnpm exec vitest run src/mcp/legacy/tool-metadata.test.ts`
+Expected: PASS, 3 in-process tests. (No `pnpm test` here — `pretest` would invoke build scripts that don't exist yet. The child-process side-effect test runs later in Task 30 Step 0 once `pnpm run build` is wired end-to-end.)
 
 - [ ] **Step 5: Commit**
 
@@ -2373,12 +2341,7 @@ Expected: PASS, 1 test.
 
 ```bash
 git add src/mcp/execute/tool.ts src/mcp/execute/tool.test.ts
-git commit -m "feat(mcp/execute): execute tool catches isolated-vm load failure with canonical message"
-```
-
-```bash
-git add src/mcp/execute/tool.ts
-git commit -m "feat(mcp/execute): add execute MCP tool with lazy sandbox/client loading"
+git commit -m "feat(mcp/execute): execute MCP tool with lazy sandbox/client loading; catches isolated-vm load failure"
 ```
 
 ---
@@ -3442,6 +3405,73 @@ git commit -m "docs: changeset + README update for v0.2 Code Mode"
 ---
 
 ## Task 30: Final integration — full build + test pass
+
+- [ ] **Step 0: Add the deferred child-process metadata side-effect test**
+
+This was deferred from Task 13 because it depends on `dist/`, which depends on the `build:docs` + `build:instructions` scripts that didn't exist yet. By Task 30 both scripts exist and `pnpm run build` works end-to-end.
+
+Create `src/mcp/legacy/tool-metadata.import.test.ts`:
+
+```ts
+// src/mcp/legacy/tool-metadata.import.test.ts
+//
+// Verifies that importing tool-metadata.js at runtime DOES NOT load any module
+// with env-dependent side effects (services/index.ts, lib/entity-resolver.ts,
+// lib/cache/cache-manager.ts). The probe runs in a child Node process with:
+//   1. No env vars beyond PATH — so a transitive env.ts import triggers a
+//      Zod parse failure (env.ts:18-29 requires DEBANK_API_KEY or both
+//      IQ_GATEWAY_*).
+//   2. cwd in a fresh tmp dir — so dotenv.config() (env.ts:4) can't find a
+//      developer's .env to mask the failure.
+//   3. DOTENV_CONFIG_PATH=/dev/null — belt-and-braces.
+
+import { spawnSync, } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, it, expect } from "vitest";
+
+describe("tool-metadata side-effect-freeness", () => {
+  it("dist build imports cleanly with NO env vars and NO service-module construction", () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+    const distPath = path.resolve(repoRoot, "dist/mcp/legacy/tool-metadata.js");
+    const tmpCwd = mkdtempSync(path.join(tmpdir(), "debank-mcp-meta-"));
+    const result = spawnSync(
+      "node",
+      [
+        "--input-type=module",
+        "-e",
+        `import { TOOL_METADATA } from "${distPath}"; process.stdout.write(String(TOOL_METADATA.length));`,
+      ],
+      {
+        cwd: tmpCwd,
+        env: {
+          PATH: process.env.PATH!,
+          DOTENV_CONFIG_PATH: "/dev/null",
+          // Intentionally NO DEBANK_API_KEY, NO IQ_GATEWAY_*, NO Gemini key.
+        },
+      },
+    );
+    expect(result.status, `stderr: ${result.stderr.toString()}`).toBe(0);
+    expect(result.stdout.toString()).toBe("31");
+  });
+});
+```
+
+Then run:
+
+Run: `pnpm test src/mcp/legacy/tool-metadata.import.test.ts`
+Expected: `pretest` builds `dist/`, then vitest runs — PASS, 1 test.
+
+If it fails with a Zod parse error in stderr, `tool-metadata.ts` has accidentally imported a module that imports `env.ts`. Trace the import graph and remove the offending import.
+
+Commit:
+
+```bash
+git add src/mcp/legacy/tool-metadata.import.test.ts
+git commit -m "test(mcp/legacy): child-process side-effect-freeness check for tool-metadata"
+```
 
 - [ ] **Step 1: Run the full build**
 
