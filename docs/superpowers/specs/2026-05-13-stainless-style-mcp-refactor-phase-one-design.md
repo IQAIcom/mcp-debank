@@ -296,7 +296,10 @@ So both side effects are unconditional under the default surface — `execute` f
 2. Import `INSTRUCTIONS` from `src/mcp/instructions/instructions.generated.ts` (compile-time-embedded string).
 3. Read `version` from `package.json` (see §6) and construct `FastMCP({name, version, instructions: INSTRUCTIONS})`.
 4. Import `src/services/index.ts` — eager singleton construction + OpenRouter model wiring.
-5. Import `src/lib/entity-resolver.ts` (used by both `execute` proxy helpers and `debank_resolve`). This transitively imports `src/lib/cache/cache-manager.ts`, whose top-level `initializeCacheManager().catch(...)` call fires the Gemini cache priming (fire-and-forget; if `GOOGLE_GENERATIVE_AI_API_KEY` is unset it logs a warning and the resolver falls back to the inline-prompt path).
+5. Import `src/lib/entity-resolver.ts` (used by both `execute` proxy helpers and `debank_resolve`). This transitively imports `src/lib/cache/cache-manager.ts`, whose top-level `initializeCacheManager().catch(...)` call fires the Gemini cache priming (fire-and-forget). Three runtime paths for `resolveChain(name)`, all using `google("gemini-2.5-flash")` ([base-resolver.ts:24-40](../../../src/lib/resolvers/base-resolver.ts#L24-L40)):
+   - **Key set, cache primed** — cached generation (~2.5 s, ~15 input tokens).
+   - **Key set, cache init failed** — uncached Gemini call with the full inline prompt (~6.4 s, ~855 input tokens). Same accuracy.
+   - **No `GOOGLE_GENERATIVE_AI_API_KEY`** — `google()` throws on first call; the resolver's catch block returns `null` ([base-resolver.ts:62-65](../../../src/lib/resolvers/base-resolver.ts#L62-L65)). Resolution stops working entirely; the agent must pass canonical chain IDs. **This is not a fallback we're adding** — it's the existing behavior of v0.1's resolver. Killing the Gemini dependency is the deferred sub-project in §7.
 6. Initialize MiniSearch from `embedded-index.ts` (one in-process index, no I/O after this).
 7. Register the four default tools: `execute`, `search_docs`, `debank_resolve`, `debank_get_supported_chain_list`.
 8. If `--legacy-tools` or `DEBANK_MCP_LEGACY=1`: `import("./mcp/legacy/tool-handlers.js")` and register the 28 handlers (no new module-load side effects since services + resolver are already loaded).
@@ -416,11 +419,18 @@ In all failure cases the isolate is disposed, never reused. No server-side retry
 
 - Gemini unreachable or no key → existing fallback path in [entity-resolver.ts](../../../src/lib/entity-resolver.ts) returns `null`. Tool returns `{resolved: null, error: "Could not resolve. Try the exact chain ID (eth, bsc, matic, …)."}`.
 
-### 4.4 Server startup failures
+### 4.4 Required-artifact failures
 
-- `embedded-index.ts` missing → throw on startup: `Run 'pnpm build' to generate the docs index`.
-- `instructions.md` missing → log warning, start with empty instructions string (degraded but functional).
-- `isolated-vm` native module not loadable → throw on startup with platform-specific install hint.
+Generated artifacts are required, not graceful-degradation candidates. Missing-artifact handling lives at the layer that can do something useful about it:
+
+- **Source `instructions.md` missing at build time** → `scripts/build-instructions.ts` exits non-zero with `instructions.md not found at <path>; cannot generate instructions.generated.ts`. This blocks `prebuild`, which blocks `build`, which blocks `prepublishOnly`. No way for a published package to ship without instructions.
+- **`instructions.generated.ts` missing at compile/runtime** → `tsc` fails on the missing import in `src/index.ts`; the published package can't reach this state because the file is committed and `prebuild` regenerates it. No special runtime handling.
+- **`embedded-index.ts` missing at compile/runtime** → same as above. `tsc` fails on missing import in `search-docs/tool.ts`; `prebuild` regenerates it; the file is committed.
+- **`isolated-vm` native module not loadable** → `import "isolated-vm"` throws at first `execute` call (lazy load per §3.1 step 10). The thrown error surfaces in the MCP tool response with the message `isolated-vm native module failed to load. On Alpine/ARM/older Node, run 'pnpm rebuild isolated-vm'. Original error: <…>`. The server itself continues running (other tools — search_docs, debank_resolve, debank_get_supported_chain_list — are unaffected and may be all the agent needs).
+- **`GOOGLE_GENERATIVE_AI_API_KEY` unset** → not an artifact failure; see §3.1 step 5 for the existing v0.1 behavior (resolver returns `null` per call).
+- **`isolated-vm` rejection happens *before* first `execute` is called** → no observable failure; startup completes fine.
+
+There are no other "log a warning and continue" paths. If a required artifact is missing, the build or the call fails loudly.
 
 ### 4.5 Explicit non-behaviors
 
@@ -491,7 +501,7 @@ Today's [package.json:14](../../../package.json#L14) is `"build": "tsc && shx ch
 ```
 
 - `scripts/build-docs-index.ts` — the index builder from §2.3. Imports the side-effect-free `src/mcp/legacy/tool-metadata.ts` and writes `src/mcp/search-docs/embedded-index.ts`.
-- `scripts/build-instructions.ts` — reads `src/mcp/instructions/instructions.md` and writes `src/mcp/instructions/instructions.generated.ts` with the content embedded as a template-literal string (escape backticks and `${`).
+- `scripts/build-instructions.ts` — reads `src/mcp/instructions/instructions.md` and writes `src/mcp/instructions/instructions.generated.ts`. Emits the content via `JSON.stringify(markdown)` (not a template literal) so embedded backticks, `${`, and code-block fences in the markdown can't break the generated TS. Output is literally `export const INSTRUCTIONS = ${JSON.stringify(markdown)};\n`.
 
 Both generated files are committed. Both run before `tsc`. The `files: ["dist"]` field stays unchanged because everything that ships is a `.ts` source that `tsc` compiles into `dist/`.
 
@@ -506,7 +516,7 @@ Both generated files are committed. Both run before `tsc`. The `files: ["dist"]`
 - `msw` — DeBank API mocking in tests.
 - `tsx` — running the docs-index builder script without a separate compile step.
 
-`zod-to-json-schema` is already a dev dep in [package.json:52](../../../package.json#L52); we just start using it in the index builder.
+`zod-to-json-schema` 3.25.1 is already declared in [package.json:52](../../../package.json#L52) and present in `pnpm-lock.yaml` (verified). **Implementation caveat:** the repo runs `zod@^4.1.11`, and `zod-to-json-schema@3.x` was originally written against zod 3. The implementation plan must verify at the first index-builder commit that converting a v4 Zod schema produces sane JSON Schema output; if not, switch to Zod 4's built-in `z.toJSONSchema()` (available since zod 4.0) and drop the `zod-to-json-schema` dependency. Either path works; no spec-level decision needed here, but the plan must check before relying on it in `build:docs`.
 
 ### Native module note
 
