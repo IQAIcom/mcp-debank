@@ -276,7 +276,9 @@ The isolate runs in the main Node thread (`isolated-vm` provides V8-level isolat
 
 `legacyMethodPath` and `sandboxMethodPath` are deliberately split so the metadata module stays unambiguous about *which method runs in which path*. The docs index displays the `qualified` form (what agents write); the search hit can also include `exampleCall` verbatim.
 
-The builder walks the metadata array, converts each `parameters` Zod schema to JSON schema, pulls hand-written cookbook entries from `src/mcp/search-docs/cookbook/*.md`, and writes `embedded-index.ts` exporting `const ENTRIES: MethodEntry[]`. The runtime constructs MiniSearch with the same options CoinGecko uses: `prefix: true, fuzzy: 0.1, boost: {name: 5, qualified: 3, summary: 2}`.
+The builder walks the metadata array, converts each `parameters` Zod schema to JSON schema, pulls hand-written cookbook entries from `src/mcp/search-docs/cookbook/*.md`, and writes `embedded-index.ts` exporting `const ENTRIES: MethodEntry[]`. The runtime constructs MiniSearch with the same options CoinGecko uses (with the field name adapted): `prefix: true, fuzzy: 0.1, boost: {name: 5, qualified: 3, description: 2}`.
+
+**One field name throughout: `description`.** The metadata module exports a `description` field per entry (mirroring [src/tools/index.ts:54](../../../src/tools/index.ts#L54) where each tool definition already has a `description`). The builder does NOT rename it to `summary`. The MiniSearch boost above indexes `description` directly; formatted result entries returned by `search_docs` likewise use `description` (not `summary`). CoinGecko's index has separate `summary` + `description` fields because their OpenAPI spec carries both — DeBank's tool definitions carry only one, so we keep one.
 
 **The `_userQuery` parameter is stripped from search results.** Every current tool definition includes a `_userQuery: z.string().optional()` field (e.g., [src/tools/index.ts:55-57](../../../src/tools/index.ts#L55-L57)) that the legacy path uses to seed JQ-filter context via `setQueryFromArgs` ([src/tools/index.ts:23-32](../../../src/tools/index.ts#L23-L32)). That parameter is meaningless to the sandbox path — `*Raw()` methods have no concept of `setQuery`, and `LLMDataFilter` doesn't run there. Teaching agents to pass `_userQuery` from inside `execute` would be misleading. **Rule:** when `index-builder.ts` converts the `parameters` Zod schema to JSON schema for indexing and display, it drops any key starting with an underscore (currently just `_userQuery`; the prefix convention catches future internal fields too). The legacy `tool-handlers.ts` registration keeps `_userQuery` in the schema it hands to FastMCP — that's where the field actually does work. Tests assert the indexed `params` field for `debank_get_chain` contains `id` but not `_userQuery`.
 
@@ -358,18 +360,30 @@ So both side effects are unconditional under the default surface — `execute` f
 **Testing the laziness in an ESM project.** The package is `"type": "module"` ([package.json:6](../../../package.json#L6)), so `require.cache` is not the right probe — ESM uses the loader's module map, not CommonJS's cache. Two stronger tests, neither of which mutates project metadata:
 
 1. **`vi.mock("isolated-vm", ...)` with a spy.** Mock the module to throw on import, then import the server entry and run server startup. Startup must complete without the mock being triggered. After invoking `execute`, the mock fires. Asserts that the dynamic-import boundary is the only entry point.
-2. **Custom-loader smoke test.** A child-process test that spawns `node --import ./tests/integration/no-isolated-vm.loader.mjs dist/index.js --legacy-tools` with a **sanitized env**. The Vitest `vi.mock("dotenv")` does *not* extend to spawned children — they run real `dotenv.config()` at startup, which would load the developer's `.env` and could trigger the Gemini cache init via `GOOGLE_GENERATIVE_AI_API_KEY`. The spawn options pass an explicit `env` object containing only the minimum:
+2. **Custom-loader smoke test.** A child-process test that spawns Node with a custom ESM resolve hook plus a **sanitized env** and a `cwd` that's not the project root. Because the `cwd` is moved to a temp directory, every path argument must be absolute — relative paths like `./tests/...` or `dist/index.js` would resolve under the temp `cwd` and not exist. The test resolves both paths against the project root before spawning:
    ```ts
-   spawn("node", ["--import", "./tests/integration/no-isolated-vm.loader.mjs", "dist/index.js", "--legacy-tools"], {
+   import { spawn } from "node:child_process";
+   import { mkdtempSync } from "node:fs";
+   import { tmpdir } from "node:os";
+   import path from "node:path";
+   import { fileURLToPath } from "node:url";
+
+   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+   const loaderPath  = path.resolve(repoRoot, "tests/integration/no-isolated-vm.loader.mjs");
+   const entrypoint  = path.resolve(repoRoot, "dist/index.js");
+   const tmpCwd      = mkdtempSync(path.join(tmpdir(), "debank-mcp-lazy-"));
+
+   const child = spawn("node", ["--import", loaderPath, entrypoint, "--legacy-tools"], {
+     cwd: tmpCwd,
      env: {
        PATH: process.env.PATH,
        NODE_ENV: "test",
        DEBANK_API_KEY: "test-key",
-       DOTENV_CONFIG_PATH: "/dev/null",   // belt-and-braces: even if env.ts later honors this, point it nowhere
+       DOTENV_CONFIG_PATH: "/dev/null",   // belt-and-braces in case env.ts ever starts honoring it
      },
    });
    ```
-   With no real `.env` keys in the child's env block, `dotenv.config()` still reads `./.env` from the cwd — so the spawn also sets `cwd` to a temp directory (`fs.mkdtemp`'d under `os.tmpdir()`) so the dotenv search finds no file. The loader hook ensures `isolated-vm` resolution fails; the server must reach `server.start({transportType: "stdio"})` and respond to a `search_docs` call over stdio. Any `execute` call returns the lazy-load error from §4.4. The loader never modifies `package.json` or `pnpm-lock.yaml`.
+   Vitest `vi.mock("dotenv")` does *not* extend to spawned children — they run real `dotenv.config()` at startup. Setting `cwd` to a fresh `mkdtemp` directory means dotenv's relative `./.env` lookup finds nothing; combined with the sanitized `env` block, no developer-local secrets reach the child. The loader hook ensures `isolated-vm` resolution fails; the server must reach `server.start({transportType: "stdio"})` and respond to a `search_docs` call over stdio. Any `execute` call returns the lazy-load error from §4.4. The loader never modifies `package.json` or `pnpm-lock.yaml`.
 
 Both tests live in `tests/integration/lazy-isolated-vm.test.ts`; the loader is in `tests/integration/no-isolated-vm.loader.mjs`.
 
@@ -416,7 +430,7 @@ search-docs/tool.ts:
   2. top 5 by score → [getUserNftList, getUserAllNftList, getUserNftAuthorizedList, ...]
   3. format as structured entries:
      [{ method: "debank.user.getUserNftList",
-        summary: "Fetch NFTs owned by a user on a specific chain",
+        description: "Fetch NFTs owned by a user on a specific chain",
         params: ["id: string (wallet)", "chain_id: string", "is_all?: boolean"],
         example: "await debank.user.getUserNftList({id: '0x...', chain_id: 'eth'})" }, ...]
   4. length-cap at 100K chars
@@ -518,7 +532,7 @@ Add `vitest` + `@vitest/coverage-v8`. Tests colocated as `*.test.ts`. Add `"test
 | Module | Coverage |
 |---|---|
 | `execute/sandbox.ts` | isolate creation/dispose; 30 s isolate timeout; 5 s per-call host timeout (AbortController fires); 128 MB cap; blocklist catches `process.`, `require(`, `import(`, `eval(`; TS-syntax rejection produces helpful error message; ExternalCopy round-trip preserves shape |
-| `execute/client.ts` | proxy forwards to mocked service `*Raw()` methods; raw JSON returned (no markdown); errors propagate; **all three resolver helpers callable from inside the sandbox**. Tests `vi.mock("../../src/lib/entity-resolver.js", ...)` (the `.js` extension is required — this NodeNext codebase imports runtime modules with `.js` specifiers per [src/tools/index.ts:7](../../../src/tools/index.ts#L7), and Vitest matches the mock specifier verbatim against the implementation's import string) with a fixed fake so no real Gemini call is ever made: `debank.resolveChain("BSC")` → `"bsc"` (mock returns `"bsc"`), `debank.resolveChains("Ethereum, Polygon")` → `"eth,matic"` (mock returns the comma-joined result; null-on-any-fail branch tested separately), `debank.resolveWrappedToken("WETH", "eth")` → the wrapped token address from [chains.ts](../../../src/enums/chains.ts) (this helper is pure — no LLM — so no mock needed; tests cover `null` for unknown chain ID and `null` for chain without a wrapped token). The point of these tests is that the sandbox proxy *forwards* the calls correctly; resolver accuracy itself is not tested here. |
+| `execute/client.ts` | proxy forwards to mocked service `*Raw()` methods; raw JSON returned (no markdown); errors propagate; **all three resolver helpers callable from inside the sandbox**. Tests use a **partial mock** via `importOriginal` so the LLM-backed exports get stubs but the pure `resolveWrappedToken` keeps its real implementation: `vi.mock("../../src/lib/entity-resolver.js", async (importOriginal) => { const actual = await importOriginal<typeof import("../../src/lib/entity-resolver.js")>(); return { ...actual, resolveChain: vi.fn(async (n) => n === "BSC" ? "bsc" : null), resolveChains: vi.fn(async (n) => n === "Ethereum, Polygon" ? "eth,matic" : null) }; })`. The `.js` extension is required — this NodeNext codebase imports runtime modules with `.js` specifiers per [src/tools/index.ts:7](../../../src/tools/index.ts#L7), and Vitest matches the mock specifier verbatim. Assertions: `debank.resolveChain("BSC")` → `"bsc"`, `debank.resolveChains("Ethereum, Polygon")` → `"eth,matic"` (null-on-any-fail branch tested separately), `debank.resolveWrappedToken("WETH", "eth")` → real wrapped token address from [chains.ts](../../../src/enums/chains.ts) (helper is pure, kept from `actual` so wrapped-token coverage exercises the real lookup table; tests cover `null` for unknown chain ID and `null` for chain without a wrapped token). The point of these tests is that the sandbox proxy *forwards* the calls correctly; resolver-LLM accuracy itself is not tested here. |
 | `services/*.service.ts` | each new `*Raw()` method returns parsed JSON; **byte-identical markdown regression for all 31 methods** driven by a shared fixture loader — covers every response-shape variant present in [src/types.ts](../../../src/types.ts): single-object (e.g. `getChain`), flat array (e.g. `getListTokenInformation`, `getUserChainNetCurve` ← returns `NetCurvePoint[]` directly per [user.service.ts:424](../../../src/services/user.service.ts#L424)), nested object containing array (only `getUserTotalNetCurve` returns `{usd_value_list: NetCurvePoint[]}`), and POST body result (`preExecTransaction`, `explainTransaction`). **Single-version harness, not dual-version:** before any service refactor, run each method against its DeBank-API JSON fixture under `tests/fixtures/services/` and commit the resulting markdown to `tests/snapshots/services/<method>.md`. After the refactor, the test asserts `await service.getX(args)` equals that committed snapshot. The snapshot files freeze v0.1's behavior; the running code is always v0.2. |
 | `search-docs/index-builder.ts` | given a sample `tool-metadata.ts` array, produces correct `MethodEntry[]`; Zod → JSON schema conversion runs; cookbook markdown picked up; importing the builder produces no side effects (no `chainService` constructed, no Gemini cache call) |
 | `search-docs/tool.ts` | MiniSearch ordering for "get token balance", "explain tx", "polygon nfts"; `detail=verbose` returns markdown; length cap respected; empty + no-match hint shapes |
@@ -562,7 +576,7 @@ Use `msw` to mock `pro-openapi.debank.com`. One test per flow:
 
 - `execute` happy path → inner `{ok: true, result: ...}`, envelope `isError: false`.
 - `execute` parallel calls → both succeed.
-- `execute` with `debank.resolveChain` inside — **mock the resolver**, not Gemini. Use `vi.mock("../../src/lib/entity-resolver.js", () => ({ resolveChain: async (n: string) => n === "Polygon" ? "matic" : null, ... }))`. The `.js` specifier matches the runtime import string used throughout the codebase ([src/tools/index.ts:7](../../../src/tools/index.ts#L7)). Then assert: input `"Polygon"` → resolved `"matic"` → balance call uses `chain_id: "matic"`. No real LLM call ever made.
+- `execute` with `debank.resolveChain` inside — **mock the resolver**, not Gemini. Use the same partial-mock pattern as the unit test, so non-stubbed exports like `resolveWrappedToken` still resolve from the real module: `vi.mock("../../src/lib/entity-resolver.js", async (importOriginal) => { const actual = await importOriginal<typeof import("../../src/lib/entity-resolver.js")>(); return { ...actual, resolveChain: vi.fn(async (n: string) => n === "Polygon" ? "matic" : null) }; })`. The `.js` specifier matches the runtime import string used throughout the codebase ([src/tools/index.ts:7](../../../src/tools/index.ts#L7)). Then assert: input `"Polygon"` → resolved `"matic"` → balance call uses `chain_id: "matic"`. No real LLM call ever made.
 - `execute` with intentional throw → inner `{ok: false, error: ...}`, envelope `isError: true`.
 - `execute` with TS syntax → friendly TS-rejection error message.
 - `execute` with a host call that hangs (msw delays >5 s) → per-call timeout fires, inner `{ok: false}` mentions "timed out".
