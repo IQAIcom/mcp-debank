@@ -1063,7 +1063,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
     legacyMethodPath: "chainService.getSupportedChainList",
     sandboxMethodPath: "chainService.getSupportedChainListRaw",
     description:
-      "Retrieve a comprehensive list of all blockchain chains supported by the DeBank API. Returns information about each chain including their IDs, names, logo URLs, native token IDs, wrapped token IDs, and pre-execution support status.",
+      "Retrieve a comprehensive list of all blockchain chains supported by the DeBank API. Returns information about each chain including their IDs, names, logo URLs, native token IDs, wrapped token IDs, and pre-execution support status. Use this to discover available chains before calling other chain-specific endpoints.",
     parameters: z.object({}),
     exampleCall: "await debank.chain.getSupportedChainList()",
   },
@@ -1073,7 +1073,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 
 - [ ] **Step 2: Add all 31 entries**
 
-Open the current [src/tools/index.ts](src/tools/index.ts) and copy the `name`, `description`, and `parameters` Zod schema for each of the 31 tools into the `TOOL_METADATA` array, in the same order they appear in the legacy file. For each entry, also set:
+Open the current [src/tools/index.ts](src/tools/index.ts) and copy the `name`, `description`, and `parameters` Zod schema for each of the 31 tools into the `TOOL_METADATA` array, in the same order they appear in the legacy file. **Descriptions must be byte-identical to v0.1** — copy-paste the full string including the trailing sentence; do not paraphrase or truncate. The first entry in the skeleton above is already verbatim and serves as the template. For each entry, also set:
 
 - `qualified` — the agent-facing dotted path matching the spec's §2.2 namespace (e.g. `"debank.user.getUserChainBalance"`).
 - `legacyMethodPath` — singleton + method name, e.g. `"userService.getUserChainBalance"`.
@@ -1087,10 +1087,13 @@ Open the current [src/tools/index.ts](src/tools/index.ts) and copy the `name`, `
 Create `src/mcp/legacy/tool-metadata.test.ts`:
 
 ```ts
+import { spawnSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import { TOOL_METADATA } from "./tool-metadata.js";
 
-describe("tool-metadata", () => {
+describe("tool-metadata in-process checks", () => {
   it("contains exactly 31 entries", () => {
     expect(TOOL_METADATA).toHaveLength(31);
   });
@@ -1112,16 +1115,41 @@ describe("tool-metadata", () => {
       if (shape) expect(shape).not.toHaveProperty("_userQuery");
     }
   });
+});
 
-  it("does NOT import from src/services/ or src/lib/entity-resolver", async () => {
-    // Re-importing this module must not construct service singletons.
-    // Detect by spying on console.log calls that services typically make.
-    // Lightweight check: just verifying it imports cleanly with no env vars set is enough.
-    const mod = await import("./tool-metadata.js");
-    expect(mod.TOOL_METADATA).toHaveLength(31);
+describe("tool-metadata side-effect-freeness", () => {
+  it("imports cleanly with NO env vars and NO service-module construction", () => {
+    // Spawning a child node process is the only way to test load-time
+    // side-effect-freeness honestly: the in-process tests have already imported
+    // tool-metadata.js at the top of this file (cached), and the vitest
+    // setupFiles always sets DEBANK_API_KEY so a transitive env.ts import
+    // wouldn't even fail. The child has its env scrubbed clean — if
+    // tool-metadata.ts accidentally imports services/index.ts, that imports
+    // env.ts, which fails the Zod refine and exits non-zero.
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+    const distPath = path.resolve(repoRoot, "dist/mcp/legacy/tool-metadata.js");
+    const result = spawnSync(
+      "node",
+      ["--input-type=module", "-e", `import { TOOL_METADATA } from "${distPath}"; process.stdout.write(String(TOOL_METADATA.length));`],
+      {
+        env: {
+          PATH: process.env.PATH!,
+          // Intentionally NO DEBANK_API_KEY, NO IQ_GATEWAY_*, NO Gemini key.
+          // If anything in tool-metadata's import graph touches env.ts, the
+          // Zod refine (env.ts:18-29) throws and the child exits non-zero.
+        },
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout.toString()).toBe("31");
+    // If this fails with a Zod parse error in stderr, tool-metadata.ts has
+    // accidentally imported a module that imports env.ts. Trace the import
+    // graph and remove the offending import.
   });
 });
 ```
+
+Note: this test depends on `dist/mcp/legacy/tool-metadata.js` existing — which `pretest` builds. The child process consumes the compiled JS, not the TS source.
 
 - [ ] **Step 4: Run the test**
 
@@ -1565,7 +1593,14 @@ If unsure, call `debank_resolve` or `await debank.resolveChain("...")` inside `e
 
 ## Wrapped token keywords
 
-`"WETH"`, `"wrapped native"`, and `"native token"` automatically resolve to the chain's wrapped token address via `debank.resolveWrappedToken(keyword, chain_id)`.
+The `debank.resolveWrappedToken(keyword, chain_id)` helper converts the keywords `"WETH"`, `"wrapped native"`, and `"native token"` to the chain's wrapped-token address. **You must call it explicitly** — passing one of those strings directly as a `token_id` or `id` argument inside a `debank.*` call will NOT auto-resolve. Example:
+
+\`\`\`js
+async function run(debank) {
+  const wethAddr = debank.resolveWrappedToken("WETH", "eth");
+  return await debank.token.getTokenInformation({ id: wethAddr, chain_id: "eth" });
+}
+\`\`\`
 
 ## Common patterns
 
