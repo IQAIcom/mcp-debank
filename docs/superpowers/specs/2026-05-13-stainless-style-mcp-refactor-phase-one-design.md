@@ -13,7 +13,7 @@ Prior analysis identified that the gaps DeBank fills today (LLM entity resolutio
 
 ## Goals (phase one)
 
-1. Introduce an `execute` tool — sandboxed TypeScript against a `debank` client object that mirrors current service singletons.
+1. Introduce an `execute` tool — sandboxed JavaScript (raw V8 via `isolated-vm`) against a `debank` client object that mirrors current service singletons.
 2. Introduce a `search_docs` tool — local MiniSearch index built at `pnpm build` from the existing 28 tool definitions plus hand-written cookbook entries.
 3. Introduce curated MCP `instructions` — hand-authored markdown registered via FastMCP's `instructions` field, teaching chain IDs, wrapped-token conventions, and ~10 worked examples.
 4. Keep the 28 legacy tools available behind `--legacy-tools` / `DEBANK_MCP_LEGACY=1` for backwards compatibility.
@@ -35,11 +35,13 @@ Prior analysis identified that the gaps DeBank fills today (LLM entity resolutio
 | 1 | Scope = phase one only (execute + search_docs + instructions + ~2 convenience tools) | Smallest unit that delivers the bulk of the CoinGecko UX win |
 | 2 | Sandbox = `isolated-vm` (V8 isolates in Node) | Best balance of isolation strength and zero-extra-runtime install UX; Deno path was the alternative |
 | 3 | In-sandbox API mirrors current service singletons (`debank.chain.*`, `debank.user.*`, …) | Zero refactor of service layer; proxy injects existing instances |
-| 4 | Docs index source of truth = [src/tools/index.ts](../../../src/tools/index.ts) | Already LLM-targeted SDK docs; walking it at build time gives auto-regenerated index without duplicate maintenance. A real DeBank OpenAPI spec is the long-term move but deferred |
-| 5 | 28 legacy tools hidden by default; opt-in via `--legacy-tools` flag | Default UX matches CoinGecko's 2-tool shape; existing consumers have a one-flag escape hatch |
+| 4 | Docs index source of truth = side-effect-free tool **metadata** module derived from [src/tools/index.ts](../../../src/tools/index.ts) | Already LLM-targeted SDK docs; walking pure metadata at build time avoids triggering service singleton init / openrouter wiring / Gemini cache. A real DeBank OpenAPI spec is the long-term move but deferred |
+| 5 | 28 legacy tools hidden by default; opt-in via `--legacy-tools` flag | Default UX matches CoinGecko's 2-tool shape; existing consumers have a one-flag escape hatch. **This is a breaking change** — see §6 Release plan |
 | 6 | Keep entity resolver as-is; expose in sandbox as `debank.resolveChain()` | Zero churn; instructions teach common mappings so the resolver is now mostly a long-tail fallback |
-| 7 | Services return raw JSON in sandbox; markdown + JQ filter only on legacy path | Agent does projection in JS; legacy callers keep formatted output unchanged |
+| 7 | Each service grows a `*Raw()` method that returns parsed JSON; existing public method becomes `formatResponse(await thisRaw())` | Required because `fetchWithToolConfig` and `formatResponse` are `protected` ([base.service.ts:50, :188](../../../src/services/base.service.ts)). Sandbox calls `*Raw()`; legacy 28 tools keep the markdown-returning entrypoints |
 | 8 | Default tool surface = `execute` + `search_docs` + `debank_resolve` + `debank_get_supported_chain_list` (~4 tools) | Strict 2-tool was the alternative; convenience tools save the agent from writing code just to call one helper |
+| 9 | `execute` runs **JavaScript** (not TypeScript) | `isolated-vm` evaluates raw V8 code; V8 does not parse TS syntax. Adding esbuild/sucrase transpilation is a deferred enhancement |
+| 10 | Each in-sandbox `debank` method gets its own host-side wall-clock timeout (5 s default) via `AbortController` + axios `timeout` option | `isolated-vm`'s script timeout only fires when V8 reclaims control. A stalled DeBank request awaited inside the script could outlive the 30 s isolate budget without per-call cancellation |
 
 ## §1. Architecture
 
@@ -52,27 +54,32 @@ src/
 │   ├── tools.ts              (NEW: registers execute + search_docs + 2 convenience tools)
 │   ├── execute/
 │   │   ├── tool.ts           (NEW: MCP tool definition, schema, dispatch)
-│   │   ├── sandbox.ts        (NEW: isolated-vm wrapper, lifecycle, timeouts)
+│   │   ├── sandbox.ts        (NEW: isolated-vm wrapper, lifecycle, dual timeouts)
 │   │   └── client.ts         (NEW: builds the `debank` object injected into sandbox)
 │   ├── search-docs/
 │   │   ├── tool.ts           (NEW: MCP tool definition)
-│   │   ├── index-builder.ts  (NEW: walks src/mcp/legacy/tools.ts at build time)
+│   │   ├── index-builder.ts  (NEW: build-time walker over tool-metadata.ts)
 │   │   ├── cookbook/         (NEW: hand-written .md examples)
 │   │   └── embedded-index.ts (GENERATED, committed: MiniSearch corpus)
 │   ├── instructions/
 │   │   └── instructions.md   (NEW: hand-authored, ~200 lines)
 │   └── legacy/
-│       └── tools.ts          (MOVED from src/tools/index.ts: the 28 tools, opt-in)
-├── services/                 (UNCHANGED)
+│       ├── tool-metadata.ts  (NEW: side-effect-free {name, description, parameters, serviceMethodPath} entries)
+│       └── tool-handlers.ts  (MOVED from src/tools/index.ts: joins metadata + service singletons)
+├── services/                 (MODIFIED: each method gains a *Raw() variant — see §2.2)
 ├── lib/                      (UNCHANGED)
 └── ...
 ```
 
 ### Key invariants
 
-- **One source of truth for service capabilities** = the 28 tool definitions in `src/mcp/legacy/tools.ts`. The docs index is regenerated from that file by a build script. Update a description, rebuild, docs follow.
-- **Shared service singletons.** The sandbox and the legacy path share the same service instances — calling `debank.user.getUserAllTokenList(...)` inside `execute` hits the exact same code as the legacy `debank_get_user_all_token_list` tool, just returning JSON instead of markdown.
-- **Isolation boundary.** `isolated-vm` runs each call in a fresh V8 `Isolate` with a 30-second per-call timeout and 128 MB memory cap. The only injected capability is the `debank` client (no `fetch`, no `process`, no `require`). Cooperative-trust model — matches CoinGecko's documented stance at [code-tool.ts:97](https://github.com/coingecko/coingecko-typescript/blob/main/packages/mcp-server/src/code-tool.ts).
+- **One source of truth for service capabilities** = the 28 metadata entries in `src/mcp/legacy/tool-metadata.ts`. The docs index is regenerated from that file by a build script. Update a description or schema, rebuild, docs follow. Metadata is side-effect-free — no imports from `src/services/` or `src/lib/entity-resolver.ts` (both have module-load side effects: singleton construction, openrouter init).
+- **Shared service code paths.** The sandbox and the legacy path share the same service singletons. Each service method exists in two forms:
+  - `*Raw()` — returns parsed JSON, called from inside `execute` via the injected `debank` client.
+  - `*()` — the existing public method, returns markdown via `formatResponse(await thisRaw())`, called by the legacy 28-tool path.
+  Both flow through `fetchWithToolConfig` / `postWithToolConfig` (still `protected`); the new `*Raw()` methods are public and live on each service class.
+- **Isolation boundary.** `isolated-vm` runs each call in a fresh V8 `Isolate` with a 30 s isolate timeout and 128 MB memory cap. The only injected capability is the `debank` client (no `fetch`, no `process`, no `require`). Cooperative-trust model — matches CoinGecko's documented stance at [code-tool.ts:97](https://github.com/coingecko/coingecko-typescript/blob/main/packages/mcp-server/src/code-tool.ts).
+- **Dual timeout.** The isolate's 30 s budget is the outer ceiling. Each host-side `debank.*` call enforces its own 5 s wall-clock timeout via `AbortController` + axios `timeout`, because `isolated-vm`'s script timeout cannot interrupt an awaited host promise.
 
 ## §2. Components
 
@@ -83,11 +90,11 @@ src/
 ```ts
 {
   name: "execute",
-  description: "Run async JavaScript against a pre-authenticated DeBank client. Define `async function run(debank) { ... }`. Return value (JSON-serializable) is sent back to you, plus any console.log output. The debank client mirrors the services: debank.chain, debank.protocol, debank.token, debank.user, debank.transaction, plus debank.resolveChain/resolveChains/resolveWrappedToken helpers. Variables do NOT persist between calls. No fs, no network outside the debank client.",
+  description: "Run async JavaScript against a pre-authenticated DeBank client. Define `async function run(debank) { ... }` and the return value (JSON-serializable) is sent back to you, plus any console.log output. The debank client mirrors the services: debank.chain, debank.protocol, debank.token, debank.user, debank.transaction, plus debank.resolveChain / resolveChains / resolveWrappedToken helpers. Note: this is JavaScript, not TypeScript — do not use type annotations. Variables do NOT persist between calls. No fs, no network outside the debank client.",
   inputSchema: {
     type: "object",
     properties: {
-      code:   { type: "string", description: "TypeScript code defining async function run(debank)." },
+      code:   { type: "string", description: "JavaScript source defining async function run(debank). No type annotations." },
       intent: { type: "string", description: "Optional: what task you're trying to perform. Telemetry only." }
     },
     required: ["code"]
@@ -98,20 +105,22 @@ src/
 
 **Lifecycle per call:**
 
-1. Spin up an `isolated-vm` `Isolate` with a 128 MB memory cap, create a fresh `Context`.
-2. Inject the `debank` proxy object (see §2.2). Inject `console.log/warn/error` stubs that pipe to captured buffers.
-3. Eval `(async () => { ${code}\nreturn await run(debank); })()` with `timeout: 30_000`.
-4. JSON-stringify the return value. Concatenate captured logs.
-5. Dispose the isolate.
-6. Return MCP content: `{ type: "text", text: JSON.stringify({result, log_lines, err_lines}) }`.
+1. Run the blocklist check (string match against `["process.", "require(", "import(", "eval("]`). Reject on hit.
+2. Spin up an `isolated-vm` `Isolate` with a 128 MB memory cap, create a fresh `Context`.
+3. Inject the `debank` proxy object (see §2.2). Inject `console.log / warn / error` stubs that pipe to captured buffers in the host.
+4. Compile `(async () => { ${code}\nreturn await run(debank); })()` as a script. **`isolated-vm` does not transpile TypeScript** — V8 will throw `SyntaxError` on type annotations.
+5. Run the script with `timeout: 30_000` (outer isolate budget). Each `debank.*` call inside also enforces a 5 s host-side timeout (see §2.2).
+6. JSON-stringify the resolved value via `ExternalCopy`. Concatenate captured logs.
+7. Dispose the isolate. Never reuse.
+8. Return MCP content: `{ content: [{type: "text", text: JSON.stringify({ok: true, result, log_lines, err_lines})}], isError: false }` on success, or `{ content: [...], isError: true }` on failure. The `ok` field inside the inner JSON mirrors CoinGecko's `is_error` semantics but uses the positive form for readability. The MCP envelope's `isError` is the canonical signal that clients check.
 
-**Blocklist:** simple `code.includes(name)` check against `["process.", "require(", "import("]`. Cooperative-trust model — real isolation comes from the V8 boundary.
+**Blocklist:** simple substring match against `["process.", "require(", "import(", "eval("]`. Cooperative-trust model — real isolation comes from the V8 boundary, not the string filter. Documented at [code-tool.ts:97](https://github.com/coingecko/coingecko-typescript/blob/main/packages/mcp-server/src/code-tool.ts).
 
 ### 2.2 In-sandbox `debank` client — `src/mcp/execute/client.ts`
 
 Built once per `Isolate`, mirrors current singletons:
 
-```ts
+```js
 debank = {
   chain:       { getSupportedChainList, getChain, getGasPrices },
   protocol:    { getAllProtocolsOfSupportedChains, getProtocolInformation,
@@ -126,19 +135,46 @@ debank = {
                  getUserTokenAuthorizedList, getUserNftAuthorizedList,
                  getUserTotalBalance, getUserChainNetCurve, getUserTotalNetCurve },
   transaction: { preExecTransaction, explainTransaction },
-  resolveChain(name): Promise<string | null>,
-  resolveChains(commaSeparated): Promise<string | null>,
-  resolveWrappedToken(keyword, chainId): string | null,
+  resolveChain(name),                  // Promise<string | null>
+  resolveChains(commaSeparated),       // Promise<string | null>
+  resolveWrappedToken(keyword, chainId) // string | null
 }
 ```
 
-Each method is exposed inside the isolate as an `isolated-vm` `Reference` to a host-side function. Per call:
+**The raw-data layer** — required because `fetchWithToolConfig` and `formatResponse` are `protected` in [base.service.ts:50, :118, :188](../../../src/services/base.service.ts):
 
-- args are copied across the V8 boundary via `ExternalCopy` (isolated-vm's primitive — handles plain objects, arrays, primitives; not class instances or functions),
-- the host function calls the existing service singleton's `fetchWithToolConfig` / `postWithToolConfig` directly (bypassing `formatResponse` — raw JSON),
-- the parsed JSON return is copied back into the isolate via `ExternalCopy`.
+Each existing service method (e.g., `ChainService.getChain`) is split into two:
 
-The isolate itself runs in the main Node thread (isolated-vm provides V8-level isolation without needing `worker_threads`). The 30 s timeout is enforced by `isolated-vm`'s built-in script timeout, not by us.
+```ts
+// In src/services/chain.service.ts
+class ChainService extends BaseService {
+  // NEW: public raw method — returns parsed JSON
+  async getChainRaw(args: { id: string }): Promise<ChainData> {
+    return this.fetchWithToolConfig<ChainData>(
+      `${this.baseUrl}/chain?id=${args.id}`,
+      config.chainDataLifeTime,
+    );
+  }
+
+  // EXISTING (refactored): public markdown method — delegates to *Raw
+  async getChain(args: { id: string }): Promise<string> {
+    const data = await this.getChainRaw(args);
+    return this.formatResponse(data, { title: "Chain Information" });
+  }
+}
+```
+
+The 28 legacy tools call `getChain`. The sandbox calls `getChainRaw`. Both share the same network/cache code path. No duplication of URL building.
+
+**How the proxy is wired:**
+
+Each `*Raw()` method is exposed inside the isolate as an `isolated-vm` `Reference` to a host-side function. Per call:
+
+- Args are copied across the V8 boundary via `ExternalCopy` (`isolated-vm`'s primitive — handles plain objects, arrays, primitives; not class instances or functions).
+- The host function invokes the service's `*Raw()` method **wrapped in `Promise.race` with a 5 s host-side `AbortController` timeout** (see Decision #10). The axios call inside also gets `timeout: 5000`.
+- The parsed JSON return is copied back into the isolate via `ExternalCopy`.
+
+The isolate runs in the main Node thread (`isolated-vm` provides V8-level isolation without needing `worker_threads`). The 30 s outer timeout is `isolated-vm`'s built-in script timeout; the 5 s per-call inner timeout is ours.
 
 ### 2.3 `search_docs` tool — `src/mcp/search-docs/`
 
@@ -160,7 +196,22 @@ The isolate itself runs in the main Node thread (isolated-vm provides V8-level i
 }
 ```
 
-**Index build.** `src/mcp/search-docs/index-builder.ts` runs at `pnpm build`. It imports `legacy/tools.ts`, walks the 28 entries, extracts `{name, description, jsonSchema (from Zod via zod-to-json-schema), serviceMethod, exampleCall}`, plus pulls hand-written cookbook entries from `src/mcp/search-docs/cookbook/*.md`, and writes `embedded-index.ts` exporting `const ENTRIES: MethodEntry[]`. The runtime constructs MiniSearch with the same options CoinGecko uses: `prefix: true, fuzzy: 0.1, boost: {name: 5, qualified: 3, summary: 2}`.
+**Index build.** `src/mcp/search-docs/index-builder.ts` runs at `pnpm build`. It imports `src/mcp/legacy/tool-metadata.ts` — a deliberately side-effect-free module that exports only data, no `import`s from `src/services/`, `src/lib/entity-resolver.ts`, or `src/lib/cache/`. Each metadata entry is shaped as:
+
+```ts
+{
+  name: "debank_get_user_chain_balance",       // legacy tool name
+  qualified: "debank.user.getUserChainBalance", // sandbox call path
+  serviceMethodPath: "user.getUserChainBalanceRaw", // resolved at handler-wire time
+  description: "...",
+  parameters: ZodSchema,                       // converted to JSON schema via zod-to-json-schema at index-build time
+  exampleCall: "await debank.user.getUserChainBalance({chain_id: 'eth', id: '0x...'})"
+}
+```
+
+The builder walks the metadata array, converts each `parameters` Zod schema to JSON schema, pulls hand-written cookbook entries from `src/mcp/search-docs/cookbook/*.md`, and writes `embedded-index.ts` exporting `const ENTRIES: MethodEntry[]`. The runtime constructs MiniSearch with the same options CoinGecko uses: `prefix: true, fuzzy: 0.1, boost: {name: 5, qualified: 3, summary: 2}`.
+
+**The handler module** (`src/mcp/legacy/tool-handlers.ts`) joins each metadata entry to its service singleton's method at server-start time — keeping side effects out of the metadata file. This is what gets registered with FastMCP only when `--legacy-tools` is set.
 
 ### 2.4 Convenience tools — `src/mcp/tools.ts`
 
@@ -173,17 +224,21 @@ Two thin wrappers over services:
 
 Hand-authored markdown, ~200 lines, structured like CoinGecko's:
 
-- **Top Operations** — 10 worked TypeScript snippets (portfolio, gas, history, simulation, NFT, approvals, protocol lookup, token price, chain list, total balance).
+- **Top Operations** — 10 worked JavaScript snippets (portfolio, gas, history, simulation, NFT, approvals, protocol lookup, token price, chain list, total balance).
 - **Chain ID Conventions** — table (Ethereum→eth, BSC→bsc, Polygon→matic, Arbitrum→arb, …).
 - **Wrapped Token Keywords** — WETH, wrapped native, native token.
 - **Common Patterns** — pagination, error handling, projection in JS.
-- **Sandbox Constraints** — no fs, no fetch outside debank, 30 s timeout, no state between calls.
+- **Sandbox Constraints** — no fs, no fetch outside debank, 30 s isolate budget + 5 s per-call host timeout, no state between calls.
 
 Loaded once at server startup, passed via FastMCP's `instructions` server option.
 
-### 2.6 Legacy path — `src/mcp/legacy/tools.ts`
+### 2.6 Legacy path — `src/mcp/legacy/`
 
-Moved verbatim from current [src/tools/index.ts](../../../src/tools/index.ts). Registered only when `--legacy-tools` flag is passed or `DEBANK_MCP_LEGACY=1` env is set. No behavior change for opt-in callers.
+Two files:
+- `tool-metadata.ts` — pure data, side-effect-free, consumed both by the docs index builder at build time and by `tool-handlers.ts` at server-start.
+- `tool-handlers.ts` — moved from current [src/tools/index.ts](../../../src/tools/index.ts), joins each metadata entry to its service singleton method and wraps in MCP-tool shape. Imports services and entity resolver (so it has the same module-load side effects as today's tools file).
+
+Registered with FastMCP only when `--legacy-tools` is set or `DEBANK_MCP_LEGACY=1`. No behavior change for opt-in callers.
 
 ## §3. Data flow
 
@@ -193,7 +248,7 @@ Moved verbatim from current [src/tools/index.ts](../../../src/tools/index.ts). R
 2. Read `src/mcp/instructions/instructions.md` into memory.
 3. Construct `FastMCP({name, version, instructions})`.
 4. Register `execute`, `search_docs`, `debank_resolve`, `debank_get_supported_chain_list`.
-5. If `--legacy-tools`, also register the 28 from `src/mcp/legacy/tools.ts`.
+5. If `--legacy-tools`, also import and register the 28 from `src/mcp/legacy/tool-handlers.ts` (which is when the entity resolver + service singletons get constructed).
 6. Initialize MiniSearch from `embedded-index.ts` once.
 7. Lazy-init the `isolated-vm` `Isolate` on first `execute` call.
 8. `server.start({transportType: "stdio"})`.
@@ -215,15 +270,18 @@ execute/tool.ts:
   1. blocklist check passes
   2. acquire isolate (fresh per call)
   3. inject debank proxy
-  4. eval `(async () => { ${code}; return run(debank); })()` with timeout=30000
+  4. eval `(async () => { ${code}; return run(debank); })()` with isolated-vm timeout=30000
      - inside isolate: run() calls d.user.getUserChainBalance twice in parallel
-     - each call crosses isolate boundary → host calls userService.fetchWithToolConfig(url)
-     - fetchWithToolConfig hits IQ Gateway (cached 5min) or DeBank API direct
-     - response JSON parsed, returned as Reference back into isolate
+     - each call crosses isolate boundary → host invokes userService.getUserChainBalanceRaw(args)
+       wrapped in Promise.race with a 5 s AbortController; axios timeout: 5000 also set
+     - the Raw method hits IQ Gateway (cached 5min) or DeBank API direct via fetchWithToolConfig
+     - response JSON parsed, returned as ExternalCopy back into isolate
      - run() awaits both, returns { polygon: 12345.67, bsc: 8901.23 }
   5. JSON.stringify the return, attach captured console output
-  6. dispose isolate
-  7. return MCP content: text=`{"result":{"polygon":12345.67,"bsc":8901.23},"log_lines":[]}`
+  6. dispose isolate (never reuse)
+  7. return MCP content:
+     content=[{type:"text", text:'{"ok":true,"result":{"polygon":12345.67,"bsc":8901.23},"log_lines":[]}'}]
+     isError=false   // MCP envelope field
 ```
 
 ### 3.3 `search_docs` call
@@ -261,23 +319,48 @@ Unchanged from today. Each of the 28 tools dispatches through service → `forma
 
 ## §4. Error handling
 
+### 4.0 Response shape contract
+
+Every tool returns the standard MCP `ToolCallResult` envelope:
+```ts
+{
+  content: [{ type: "text", text: string }],
+  isError: boolean   // camelCase, per MCP spec — this is what clients branch on
+}
+```
+
+For `execute`, the inner `text` is a JSON string with this shape:
+```ts
+{
+  ok: boolean,           // true on success, false on any failure mode
+  result?: unknown,      // present on ok=true: the JSON-stringified return value
+  error?: string,        // present on ok=false: human-readable error message
+  log_lines: string[],   // captured console.log output (snake_case to match CoinGecko's WorkerOutput)
+  err_lines: string[]    // captured console.error output + stack traces
+}
+```
+
+The MCP envelope's `isError` is `!ok`. Clients can read either; we set both consistently.
+
 ### 4.1 Sandbox failures
 
-| Failure | Behavior | Agent sees |
-|---|---|---|
-| Syntax error in `code` | `isolate.compileScript` throws | `{is_error: true, result: "SyntaxError: ..."}` with `isError: true` |
-| Runtime error inside `run(debank)` | isolate evaluation rejects | `{is_error: true, result: "<error message>", err_lines: [stack]}` |
-| Timeout (>30 s) | `isolated-vm` aborts the script | `{is_error: true, result: "Execution timed out after 30s. Simplify or paginate."}` |
-| Memory cap exceeded (>128 MB) | `isolated-vm` aborts | `{is_error: true, result: "Memory limit exceeded. Reduce result size or batch."}` |
-| Blocklist hit (`process.`, `require(`, `import(`) | Pre-eval string check fails | `{is_error: true, result: "Blocked identifier: '<token>'"}` |
-| Service call inside isolate fails (DeBank 404, 429, network) | Error propagates across V8 boundary as plain `Error` | Agent's `try/catch` handles it; otherwise surfaces in `err_lines` |
+| Failure | Behavior | Inner JSON payload (`text`) | Envelope `isError` |
+|---|---|---|---|
+| Syntax error in `code` (V8 parse) | `isolate.compileScript` throws | `{ok:false, error:"SyntaxError: ...", log_lines:[], err_lines:[]}` | `true` |
+| Type annotation in `code` (e.g. `function run(d: Client)`) | Same as above — V8 rejects TS syntax | `{ok:false, error:"SyntaxError: Unexpected token ':' — note: execute runs JavaScript, not TypeScript", log_lines:[], err_lines:[]}` | `true` |
+| Runtime error inside `run(debank)` | isolate eval rejects | `{ok:false, error:"<message>", log_lines:[...], err_lines:[stack]}` | `true` |
+| Isolate timeout (>30 s) | `isolated-vm` aborts the script | `{ok:false, error:"Script timed out after 30s. Simplify or paginate."}` | `true` |
+| Per-call host timeout (>5 s) | `AbortController` rejects the host promise; isolate sees a rejected promise inside the script | Either caught by user's `try/catch` (then `ok:true` with their handling), or surfaces as runtime error: `{ok:false, error:"DeBank call timed out after 5s: <method>"}` | `true` (if uncaught) |
+| Memory cap exceeded (>128 MB) | `isolated-vm` aborts | `{ok:false, error:"Memory limit exceeded. Reduce result size or batch."}` | `true` |
+| Blocklist hit (`process.`, `require(`, `import(`, `eval(`) | Pre-compile substring check fails | `{ok:false, error:"Blocked identifier: '<token>'"}` | `true` |
+| Service call inside isolate fails (DeBank 4xx/5xx/network) | Error propagates across V8 boundary as plain `Error` | Caught by user → their handling; uncaught → runtime error path above | depends |
 
 In all failure cases the isolate is disposed, never reused. No server-side retry — the agent decides.
 
 ### 4.2 `search_docs` failures
 
-- Empty/blank query → `{results: [], hint: "Provide a query like 'get token balance'"}`. No error.
-- No matches → `{results: [], hint: "No matches. Try broader terms or call execute with raw HTTP."}`.
+- Empty/blank query → `{results: [], hint: "Provide a query like 'get token balance'"}`. `isError: false`.
+- No matches → `{results: [], hint: "No matches. Try broader terms, or call \`debank_get_supported_chain_list\` / \`debank_resolve\` for chain grounding."}`. `isError: false`.
 
 ### 4.3 `debank_resolve` failures
 
@@ -307,22 +390,25 @@ Add `vitest` + `@vitest/coverage-v8`. Tests colocated as `*.test.ts`. Add `"test
 
 | Module | Coverage |
 |---|---|
-| `execute/sandbox.ts` | isolate creation/dispose; 30 s timeout; 128 MB cap; blocklist catches `process.`, `require(`, `import(`; injected `debank` proxy methods callable; structured clone across boundary |
-| `execute/client.ts` | proxy forwards to mocked service singletons; raw JSON returned (no markdown); errors propagate |
-| `search-docs/index-builder.ts` | given sample `tools.ts` AST, produces correct `MethodEntry[]`; cookbook markdown picked up |
-| `search-docs/tool.ts` | MiniSearch ordering for "get token balance", "explain tx", "polygon nfts"; `detail=verbose` returns markdown; length cap respected |
+| `execute/sandbox.ts` | isolate creation/dispose; 30 s isolate timeout; 5 s per-call host timeout (AbortController fires); 128 MB cap; blocklist catches `process.`, `require(`, `import(`, `eval(`; TS-syntax rejection produces helpful error message; ExternalCopy round-trip preserves shape |
+| `execute/client.ts` | proxy forwards to mocked service `*Raw()` methods; raw JSON returned (no markdown); errors propagate; `debank.resolveChain` callable inside |
+| `services/*.service.ts` | each new `*Raw()` method returns parsed JSON; matching markdown-returning method still produces the same string as before (regression-test the legacy path) |
+| `search-docs/index-builder.ts` | given a sample `tool-metadata.ts` array, produces correct `MethodEntry[]`; Zod → JSON schema conversion runs; cookbook markdown picked up; importing the builder produces no side effects (no `chainService` constructed, no Gemini cache call) |
+| `search-docs/tool.ts` | MiniSearch ordering for "get token balance", "explain tx", "polygon nfts"; `detail=verbose` returns markdown; length cap respected; empty + no-match hint shapes |
 | `mcp/tools.ts` (`debank_resolve`) | "Binance Smart Chain" → "bsc"; "ETH" → "eth"; unknown → `{resolved: null}` |
 
 ### 5.3 Integration tests (mock DeBank API)
 
 Use `msw` to mock `pro-openapi.debank.com`. One test per flow:
 
-- `execute` happy path → JSON in `result`.
+- `execute` happy path → inner `{ok: true, result: ...}`, envelope `isError: false`.
 - `execute` parallel calls → both succeed.
 - `execute` with `debank.resolveChain` inside → "Polygon" → "matic" → balance call uses "matic".
-- `execute` with intentional error → `isError: true`.
+- `execute` with intentional throw → inner `{ok: false, error: ...}`, envelope `isError: true`.
+- `execute` with TS syntax → friendly TS-rejection error message.
+- `execute` with a host call that hangs (msw delays >5 s) → per-call timeout fires, inner `{ok: false}` mentions "timed out".
 - `search_docs("get NFTs")` → top result is `getUserNftList`.
-- `--legacy-tools` mode → all 28 tools still register and dispatch.
+- `--legacy-tools` mode → all 28 tools still register and dispatch through markdown path.
 
 ### 5.4 Out of scope for phase one
 
@@ -335,11 +421,16 @@ Use `msw` to mock `pro-openapi.debank.com`. One test per flow:
 
 Add `.github/workflows/test.yml` running `pnpm test` on push. Existing `pnpm lint` (biome) stays.
 
-## Release plan
+## §6. Release plan
 
-- New version: `0.2.0` (minor bump, additive — legacy tools still reachable via flag).
-- Add changeset entry describing the new tools and the `--legacy-tools` flag.
-- Update [README.md](../../../README.md) — new "Code Mode" section, deprecation notice for the 28 tools, migration guide for v1 users.
+**This is a breaking change.** Hiding the 28 `debank_*` tools by default removes them from the wire surface that existing v0.1.x consumers' MCP clients see. Any agent prompt or client config naming a specific `debank_*` tool stops working until the user adds `--legacy-tools`. Communicating that clearly is more important than the version number we choose.
+
+Under semver, a 0.x package is allowed to break in minor bumps, so `0.2.0` is technically valid. The framing — not the digit — is what matters.
+
+- **Version:** `0.2.0`. Changeset entry uses `minor` bump type but explicitly labels the breaking change in the description, in line with semver-for-0.x conventions.
+- **Changeset content:** lead with `**Breaking change:** the 28 \`debank_*\` tools are now hidden by default. Pass \`--legacy-tools\` or set \`DEBANK_MCP_LEGACY=1\` to restore them. New tools: \`execute\`, \`search_docs\`, \`debank_resolve\`, \`debank_get_supported_chain_list\`.`
+- **README:** new "Code Mode" section with worked examples; "Migrating from v0.1.x" section showing the `--legacy-tools` escape hatch; deprecation notice on the 28-tool list.
+- **CHANGELOG.md:** auto-generated by changesets, but verify the breaking-change call-out lands at the top of the entry.
 
 ## Open items deferred to later sub-projects
 
