@@ -1573,7 +1573,22 @@ If unsure, call `debank_resolve` or `await debank.resolveChain("...")` inside `e
 The DeBank API uses offset-based pagination via `start` and `limit` (or `page_count` for history). Always paginate inside a single `execute` block — variables don't persist between calls.
 
 ### Error handling
-Throw or return errors — the runtime maps both to `{ok: false, error: ...}`. The server already retries upstream transient errors.
+Throw or return errors — the runtime maps both to `{ok: false, error: ...}`. **The server does NOT retry upstream errors on your behalf.** If a `debank.*` call fails, decide whether to retry from your own code. For transient errors (network blip, DeBank 429, 5xx) a short `for`-loop with a small delay is fine; for hard 4xx errors retrying is pointless. Variables don't persist between `execute` calls, so put any retry loop inside one `execute` body.
+
+Example pattern:
+
+\`\`\`js
+async function run(debank) {
+  for (let i = 0; i < 3; i++) {
+    try {
+      return await debank.user.getUserTotalBalance({ id: "0xWALLET" });
+    } catch (err) {
+      if (i === 2) throw err;
+      await new Promise(r => setTimeout(r, 500 * (i + 1)));
+    }
+  }
+}
+\`\`\`
 
 ### Projection
 Return only what you need. The result crosses the V8 boundary as a JSON copy — keep payloads small.
@@ -2337,7 +2352,13 @@ Expected: FAIL — cannot find `./tools.js`.
 
 import { z } from "zod";
 import { resolveChain } from "../lib/entity-resolver.js";
-import { chainService } from "../services/index.js";
+import {
+  chainService,
+  protocolService,
+  tokenService,
+  transactionService,
+  userService,
+} from "../services/index.js";
 
 const RESOLVE_PARAMS = z.object({
   name: z.string().describe("Free-text chain name like 'BSC' or 'Binance Smart Chain'."),
@@ -2371,15 +2392,35 @@ export const resolveTool = {
   },
 };
 
-const CHAIN_LIST_PARAMS = z.object({});
+// debank_get_supported_chain_list is the ONLY v0.1 tool that survives into the
+// default surface unchanged. Legacy mode skips it as a duplicate (see §3.1
+// step 8) — so this default registration is the one users get under both
+// default and --legacy-tools modes. Schema, description, and execute behavior
+// MUST stay byte-identical to v0.1 src/tools/index.ts:52-62: accept
+// _userQuery, pipe through setQuery, return the markdown.
+
+const CHAIN_LIST_PARAMS = z.object({
+  _userQuery: z.string().optional(),
+});
 
 export const supportedChainListTool = {
   name: "debank_get_supported_chain_list",
   description:
-    "Retrieve a comprehensive list of all blockchain chains supported by the DeBank API.",
+    "Retrieve a comprehensive list of all blockchain chains supported by the DeBank API. Returns information about each chain including their IDs, names, logo URLs, native token IDs, wrapped token IDs, and pre-execution support status. Use this to discover available chains before calling other chain-specific endpoints.",
   parameters: CHAIN_LIST_PARAMS,
   annotations: { readOnlyHint: true },
-  execute: async () => {
+  execute: async (args: z.infer<typeof CHAIN_LIST_PARAMS>) => {
+    // Same setQueryFromArgs pattern as src/tools/index.ts:23-32 — pipes
+    // _userQuery into every service so JQ-filter context is available on
+    // large responses.
+    const q = args._userQuery;
+    if (q) {
+      chainService.setQuery(q);
+      protocolService.setQuery(q);
+      tokenService.setQuery(q);
+      transactionService.setQuery(q);
+      userService.setQuery(q);
+    }
     const md = await chainService.getSupportedChainList();
     return { content: [{ type: "text" as const, text: md }], isError: false };
   },
