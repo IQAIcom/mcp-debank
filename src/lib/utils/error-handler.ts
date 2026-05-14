@@ -1,6 +1,6 @@
-/**
- * Error handling utilities
- */
+// src/lib/utils/error-handler.ts
+//
+// Error handling utilities.
 
 import axios from "axios";
 
