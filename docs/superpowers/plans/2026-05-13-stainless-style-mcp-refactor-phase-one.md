@@ -3613,7 +3613,7 @@ Task 7 captured the v0.1 markdown output as a one-shot. This task adds a vitest 
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { INVOCATIONS, type Services } from "../fixtures/invocations.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -3622,10 +3622,19 @@ const snapshotsDir = path.join(repoRoot, "tests/snapshots/services");
 
 describe("service markdown snapshots", () => {
   let services: Services;
+  // Save the originals so we can restore them in afterAll. Without this,
+  // BaseService.prototype.fetchWithToolConfig and postWithToolConfig stay
+  // patched for the rest of the worker — any later test file using a real
+  // service method would silently read from tests/fixtures/services/ instead
+  // of axios/MSW.
+  let origFetch: unknown;
+  let origPost: unknown;
 
   beforeAll(async () => {
     const { BaseService } = await import("../../src/services/base.service.js");
     const proto = BaseService.prototype as unknown as Record<string, unknown>;
+    origFetch = proto.fetchWithToolConfig;
+    origPost = proto.postWithToolConfig;
     const stub = async function () {
       const key = (globalThis as Record<string, unknown>).__SNAPSHOT_KEY as string;
       const raw = await fs.readFile(path.join(fixturesDir, `${key}.json`), "utf-8");
@@ -3641,6 +3650,13 @@ describe("service markdown snapshots", () => {
       transactionService: mod.transactionService,
       userService: mod.userService,
     };
+  });
+
+  afterAll(async () => {
+    const { BaseService } = await import("../../src/services/base.service.js");
+    const proto = BaseService.prototype as unknown as Record<string, unknown>;
+    proto.fetchWithToolConfig = origFetch;
+    proto.postWithToolConfig = origPost;
   });
 
   for (const inv of INVOCATIONS) {
