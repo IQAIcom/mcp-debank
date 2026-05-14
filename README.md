@@ -130,7 +130,7 @@ Starting in v0.2, the preferred way to query DeBank from an AI agent is the `exe
 
 ### `execute` — Sandboxed JavaScript
 
-Run arbitrary JavaScript inside a secure `isolated-vm` sandbox. The sandbox receives a fully-configured DeBank client instance as `debank`. All service namespaces (`debank.user`, `debank.token`, `debank.chain`, `debank.protocol`, `debank.pool`, `debank.nft`) are available.
+Run arbitrary JavaScript inside a secure `isolated-vm` sandbox. The sandbox receives a fully-configured DeBank client instance as `debank`. All service namespaces (`debank.chain`, `debank.protocol`, `debank.token`, `debank.user`, `debank.transaction`) are available. Pool methods are under `debank.protocol`; NFT methods are under `debank.user`.
 
 **Example:**
 
