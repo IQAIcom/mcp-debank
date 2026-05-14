@@ -63,10 +63,33 @@ Deleted/moved:
 
 Run:
 ```bash
-pnpm add isolated-vm minisearch
+pnpm add isolated-vm@^6 minisearch
 ```
 
-Expected: both added to `dependencies`. If `isolated-vm` fails to build natively, follow the platform error message (`pnpm rebuild isolated-vm` usually fixes Alpine/ARM/older Node).
+Expected: both added to `dependencies`. **`isolated-vm` 6.x requires Node ≥22** (see [package metadata](https://github.com/laverdet/isolated-vm/blob/main/package.json)); CI is set to Node 22 in Task 28 to match. If `isolated-vm` fails to build natively, follow the platform error message (`pnpm rebuild isolated-vm` usually fixes Alpine/ARM mismatches).
+
+**Runtime flag:** `isolated-vm`'s README requires running Node with `--no-node-snapshot` to avoid a V8 snapshot incompatibility. Every node invocation that loads the sandbox — `start` script, sanity checks in Task 30, the lazy-isolated-vm child-process test in Task 26, CI — passes the flag. Task 22 wires it into the shebang of the published binary so end users running `pnpm dlx @iqai/mcp-debank` get it automatically.
+
+- [ ] **Step 1a: Smoke-test the native addon and the `--no-node-snapshot` policy**
+
+Verifies `isolated-vm` actually loaded, the addon binding is healthy on this platform, and the runtime flag is honored. Run before moving on — if this fails, no later task in the plan will work.
+
+```bash
+NODE_OPTIONS=--no-node-snapshot node --input-type=module -e "
+import('isolated-vm').then(async (mod) => {
+  const ivm = mod.default ?? mod;
+  const isolate = new ivm.Isolate({ memoryLimit: 32 });
+  const ctx = await isolate.createContext();
+  const script = await isolate.compileScript('1 + 1');
+  const result = await script.run(ctx, { timeout: 1000, copy: true });
+  if (result !== 2) { console.error('unexpected result:', result); process.exit(1); }
+  isolate.dispose();
+  console.log('isolated-vm smoke ok');
+})
+"
+```
+
+Expected: `isolated-vm smoke ok`. CI runs the equivalent step in Task 28 so a broken native binding fails the PR before lint/test.
 
 - [ ] **Step 2: Install dev deps**
 
@@ -140,10 +163,22 @@ Replace the existing `scripts` object with:
     "test:watch":         "vitest",
     "prepare":            "husky",
     "watch":              "tsc --watch",
-    "start":              "node dist/index.js",
+    "start":              "node --no-node-snapshot dist/index.js",
     "format":             "biome format . --write",
     "lint":               "biome check .",
     "publish-packages":   "pnpm run build && changeset publish"
+  }
+}
+```
+
+`start` passes `--no-node-snapshot` per Task 1's runtime-flag policy. Vitest inherits `NODE_OPTIONS=--no-node-snapshot` from the CI env block (Task 28); local runs picking up the option via the env block in `tests/integration/setup.ts` is unnecessary because `process.execArgv` already includes vitest's launcher flags.
+
+**Engines:** also add an `engines` block to package.json declaring the minimum Node version, so `pnpm install` warns on Node <22:
+
+```jsonc
+{
+  "engines": {
+    "node": ">=22"
   }
 }
 ```
@@ -3323,8 +3358,10 @@ git commit -m "feat(mcp): add debank_resolve and debank_get_supported_chain_list
 
 - [ ] **Step 1: Replace `src/index.ts` entirely**
 
+The shebang uses `env -S` to pass `--no-node-snapshot` to node — required by isolated-vm per Task 1's runtime-flag policy. `env -S` (split args) has been in coreutils 8.30+ (2018) and BSD env on macOS for years; CI Ubuntu and macOS dev machines both support it. Windows installs of `pnpm dlx` go through npm's shim, which respects shebang flags via cmd-shim.
+
 ```ts
-#!/usr/bin/env node
+#!/usr/bin/env -S node --no-node-snapshot
 import { createRequire } from "node:module";
 import { FastMCP } from "fastmcp";
 import { createChildLogger } from "./lib/utils/logger.js";
@@ -3720,7 +3757,8 @@ const entrypoint = path.resolve(repoRoot, "dist/index.js");
 describe("lazy isolated-vm", () => {
   it("server starts without loading isolated-vm; search_docs works; execute fails", async () => {
     const tmpCwd = mkdtempSync(path.join(tmpdir(), "debank-mcp-lazy-"));
-    const child = spawn("node", ["--import", registerPath, entrypoint, "--legacy-tools"], {
+    // --no-node-snapshot per Task 1's isolated-vm runtime-flag policy
+    const child = spawn("node", ["--no-node-snapshot", "--import", registerPath, entrypoint, "--legacy-tools"], {
       cwd: tmpCwd,
       env: {
         PATH: process.env.PATH!,
@@ -4079,6 +4117,13 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Every node invocation in this job loads isolated-vm at some point
+    # (tests directly; the lazy-isolated-vm child-process test indirectly
+    # via dist/index.js). isolated-vm's README requires --no-node-snapshot
+    # on Node 20+; setting it once at the job level is simpler than
+    # threading it through every step's shell command.
+    env:
+      NODE_OPTIONS: --no-node-snapshot
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v3
@@ -4086,31 +4131,48 @@ jobs:
           version: 9
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # isolated-vm 6.x requires Node >=22. See Task 1.
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      # 1. Build first so prebuild regenerates the committed generated files.
+      # 1. Smoke-test the isolated-vm native addon BEFORE anything else.
+      #    A broken native binding on the CI runner should fail fast with
+      #    a pointed message, not surface as a confusing test-suite error
+      #    minutes later.
+      - name: isolated-vm smoke
+        run: |
+          node --input-type=module -e "
+          import('isolated-vm').then(async (mod) => {
+            const ivm = mod.default ?? mod;
+            const isolate = new ivm.Isolate({ memoryLimit: 32 });
+            const ctx = await isolate.createContext();
+            const script = await isolate.compileScript('1 + 1');
+            const result = await script.run(ctx, { timeout: 1000, copy: true });
+            if (result !== 2) { console.error('unexpected:', result); process.exit(1); }
+            isolate.dispose();
+            console.log('isolated-vm smoke ok');
+          })
+          "
+
+      # 2. Build so prebuild regenerates the committed generated files.
       - run: pnpm run build
 
-      # 2. Fail loudly if the regenerated files differ from what's committed.
-      #    Mirrors Task 30 Step 2. Catches engineers who edited a generator
-      #    source (tool-metadata.ts, cookbook/, instructions.md) without
-      #    committing the regenerated artifact, AND catches non-deterministic
-      #    generator output.
+      # 3. Fail loudly if regenerated files differ from what's committed.
+      #    Mirrors Task 30 Step 2.
       - name: verify generated files are committed and unmodified
         run: |
           git diff --exit-code \
             src/mcp/search-docs/embedded-index.ts \
             src/mcp/instructions/instructions.generated.ts
 
-      # 3. Lint AFTER the build/diff check — linting stale artifacts is
+      # 4. Lint AFTER the build/diff check — linting stale artifacts is
       #    worthless. By this point we know the committed files match what
       #    the generators emit; lint proves what they emit is Biome-clean.
       - run: pnpm lint
 
-      # 4. Tests. `pretest` runs `pnpm run build` again; that's redundant
-      #    after Step 1 (deterministic generators) but harmless.
+      # 5. Tests. `pretest` runs `pnpm run build` again; redundant after
+      #    Step 2 (deterministic generators) but harmless.
       - run: pnpm test
 ```
 
@@ -4156,6 +4218,12 @@ Add a top-level "Code Mode (v0.2+)" section before the existing "MCP Tools" sect
 - The "Migrating from v0.1.x" subsection explaining `--legacy-tools`.
 
 Move the auto-generated tool list under a "Legacy tools (--legacy-tools)" heading and add a deprecation notice at its top.
+
+**Add a "Requirements" subsection** near the top that says:
+
+> - Node.js ≥ 22 (required by `isolated-vm` 6.x; older Node versions cannot run the `execute` sandbox).
+> - The published binary's shebang already passes `--no-node-snapshot` to node. If you invoke `node dist/index.js` directly (rare), pass `--no-node-snapshot` yourself: `node --no-node-snapshot dist/index.js`.
+> - On Alpine, ARM, or other platforms without a prebuilt `isolated-vm` addon: `pnpm rebuild isolated-vm` after install.
 
 - [ ] **Step 3: Commit**
 
@@ -4288,10 +4356,10 @@ If anything fails, fix and commit before declaring done.
 
 - [ ] **Step 5: Sanity-check the server boots and responds to `initialize`**
 
-FastMCP stdio servers do NOT proactively announce ready — they wait for the client to send `initialize`. Drive the handshake manually:
+FastMCP stdio servers do NOT proactively announce ready — they wait for the client to send `initialize`. Drive the handshake manually. The shebang on `dist/index.js` already includes `--no-node-snapshot`; invoking via `./dist/index.js` (not `node dist/index.js`) picks it up automatically. Both forms work:
 
 ```bash
-DEBANK_API_KEY=sanity node dist/index.js <<EOF
+DEBANK_API_KEY=sanity ./dist/index.js <<EOF
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"sanity","version":"1"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
 {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
@@ -4300,10 +4368,12 @@ EOF
 
 Expected: two JSON-RPC responses on stdout. The second includes `execute`, `search_docs`, `debank_resolve`, `debank_get_supported_chain_list`. The process exits cleanly when stdin closes after the heredoc.
 
+If you invoke via `node dist/index.js` directly (bypassing the shebang), pass the flag explicitly: `node --no-node-snapshot dist/index.js …`.
+
 - [ ] **Step 6: Sanity-check legacy mode**
 
 ```bash
-DEBANK_API_KEY=sanity node dist/index.js --legacy-tools <<EOF
+DEBANK_API_KEY=sanity ./dist/index.js --legacy-tools <<EOF
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"sanity","version":"1"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
 {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
