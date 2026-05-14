@@ -161,15 +161,24 @@ Search the embedded MiniSearch index over all DeBank API methods and cookbook en
 **Trimmed results:**
 
 ```json
-[
-  {
-    "id": "user.getUserTotalBalance",
-    "title": "getUserTotalBalance",
-    "description": "Retrieve a user's total net assets across all supported chains.",
-    "params": ["id: string — wallet address"],
-    "score": 8.4
-  }
-]
+{
+  "results": [
+    {
+      "kind": "method",
+      "qualified": "debank.user.getUserTotalBalance",
+      "name": "debank_get_user_total_balance",
+      "description": "Retrieve a user's total net assets across all supported chains. Calculates and returns the total USD value of assets including both tokens and protocol positions. Provides a complete snapshot of the user's DeFi portfolio.",
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "The user's wallet address." }
+        },
+        "required": ["id"]
+      },
+      "exampleCall": "await debank.user.getUserTotalBalance({id: '0x...'})"
+    }
+  ]
+}
 ```
 
 ### Migrating from v0.1.x
