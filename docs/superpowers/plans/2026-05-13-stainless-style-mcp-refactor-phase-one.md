@@ -3775,7 +3775,7 @@ Create `src/mcp/legacy/tool-metadata.import.test.ts`:
 //      developer's .env to mask the failure.
 //   3. DOTENV_CONFIG_PATH=/dev/null — belt-and-braces.
 
-import { spawnSync, } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -3801,8 +3801,20 @@ describe("tool-metadata side-effect-freeness", () => {
           DOTENV_CONFIG_PATH: "/dev/null",
           // Intentionally NO DEBANK_API_KEY, NO IQ_GATEWAY_*, NO Gemini key.
         },
+        // Bound the probe — this test exists to catch unintended side effects,
+        // and one possible side effect is a module-load that opens a pending
+        // handle (axios keepalive, setInterval, etc.) and never exits. Without
+        // a timeout the test could hang CI indefinitely. 5 s is comfortably
+        // above legitimate import-time work for a pure-data module.
+        timeout: 5_000,
       },
     );
+    // spawnSync sets result.error when the timeout fires or the binary is
+    // missing — surface it in the assertion so failures explain themselves.
+    expect(
+      result.error,
+      `spawnSync failed: ${result.error?.message ?? "no error reported"}; stderr: ${result.stderr.toString()}`,
+    ).toBeUndefined();
     expect(result.status, `stderr: ${result.stderr.toString()}`).toBe(0);
     expect(result.stdout.toString()).toBe("31");
   });
