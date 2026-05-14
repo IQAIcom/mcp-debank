@@ -159,8 +159,8 @@ Replace the existing `scripts` object with:
     "prebuild":           "pnpm run build:docs && pnpm run build:instructions",
     "build":              "tsc && shx chmod +x dist/index.js",
     "pretest":            "pnpm run build",
-    "test":               "vitest run",
-    "test:watch":         "vitest",
+    "test":               "cross-env NODE_OPTIONS=--no-node-snapshot vitest run",
+    "test:watch":         "cross-env NODE_OPTIONS=--no-node-snapshot vitest",
     "prepare":            "husky",
     "watch":              "tsc --watch",
     "start":              "node --no-node-snapshot dist/index.js",
@@ -171,7 +171,19 @@ Replace the existing `scripts` object with:
 }
 ```
 
-`start` passes `--no-node-snapshot` per Task 1's runtime-flag policy. Vitest inherits `NODE_OPTIONS=--no-node-snapshot` from the CI env block (Task 28); local runs picking up the option via the env block in `tests/integration/setup.ts` is unnecessary because `process.execArgv` already includes vitest's launcher flags.
+`start`, `test`, and `test:watch` all pass `--no-node-snapshot` per Task 1's runtime-flag policy. Anywhere the plan invokes `pnpm exec vitest run <path>` directly (Task 17 sandbox, Task 18 client, Task 23 execute integration), the engineer **must** prefix with `NODE_OPTIONS=--no-node-snapshot` because `pnpm exec` skips the package script wrapper:
+
+```bash
+NODE_OPTIONS=--no-node-snapshot pnpm exec vitest run src/mcp/execute/sandbox.test.ts
+```
+
+The Task 28 CI env block sets `NODE_OPTIONS=--no-node-snapshot` at the job level so every CI step inherits it. Local runs via `pnpm test` / `pnpm test:watch` get it from the script. Direct `pnpm exec` calls need the explicit prefix.
+
+Install `cross-env` so the `NODE_OPTIONS=` prefix works on Windows shells too:
+
+```bash
+pnpm add -D cross-env
+```
 
 **Engines:** also add an `engines` block to package.json declaring the minimum Node version, so `pnpm install` warns on Node <22:
 
@@ -2507,8 +2519,8 @@ Add `vi` to the import line at the top of the file: `import { describe, it, expe
 
 - [ ] **Step 3: Run the test**
 
-Run: `pnpm exec vitest run src/mcp/execute/sandbox.test.ts`
-Expected: PASS, 8 tests (4 blocklist + 4 guest globals: sleep happy path, sleep clamp/deadline, console.log multi-arg join, console.error separation).
+Run: `NODE_OPTIONS=--no-node-snapshot pnpm exec vitest run src/mcp/execute/sandbox.test.ts`
+Expected: PASS, 8 tests (4 blocklist + 4 guest globals: sleep happy path, sleep clamp/deadline, console.log multi-arg join, console.error separation). The `NODE_OPTIONS` prefix is required because the sandbox tests load `isolated-vm`; `pnpm exec` bypasses the `test` script's `cross-env` wrapper (see Task 2).
 
 - [ ] **Step 4: Commit**
 
@@ -2705,6 +2717,12 @@ describe("execute/client.ts proxy forwarding", () => {
   afterEach(() => {
     try { isolate?.dispose(); } catch { /* idempotent */ }
     isolate = undefined;
+    // The naming-asymmetry test spyOns userService.getUserChainBalanceRaw on
+    // the real singleton; the error-propagation test does the same. Without
+    // restoration those spies stay attached to the shared singleton instance
+    // for the rest of the worker, polluting any later test file that imports
+    // src/services/index.js. Matches the cleanup pattern in src/mcp/tools.test.ts.
+    vi.restoreAllMocks();
   });
 
   it("naming asymmetry: guest debank.user.getUserChainBalance dispatches to userService.getUserChainBalanceRaw", async () => {
@@ -3606,8 +3624,8 @@ describe("execute integration", () => {
 
 - [ ] **Step 2: Run the tests**
 
-Run: `pnpm exec vitest run tests/integration/execute.test.ts`
-Expected: PASS, 6 tests. The never-settling test takes ~1s because it overrides `DEBANK_MCP_SANDBOX_DEADLINE_MS` to `1000` (the production default is 30 s; the env override is a test-only knob).
+Run: `NODE_OPTIONS=--no-node-snapshot pnpm exec vitest run tests/integration/execute.test.ts`
+Expected: PASS, 6 tests. The never-settling test takes ~1s because it overrides `DEBANK_MCP_SANDBOX_DEADLINE_MS` to `1000` (the production default is 30 s; the env override is a test-only knob). The `NODE_OPTIONS` prefix is required — these integration tests load `isolated-vm`.
 
 If `isolated-vm` fails to load native, follow the platform install hint. If a test races and flakes (e.g., timing between abort and axios), increase the test timeout in the specific `it()` call.
 
