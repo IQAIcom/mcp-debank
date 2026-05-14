@@ -86,7 +86,7 @@ describe("BaseService RequestOptions forwarding — direct path", () => {
 			timeout: 6_000,
 		});
 		expect(getSpy).toHaveBeenCalledTimes(1);
-		const callOpts = getSpy.mock.calls[0]![1] as {
+		const callOpts = getSpy.mock.calls[0]?.[1] as {
 			signal?: AbortSignal;
 			timeout?: number;
 		};
@@ -101,7 +101,7 @@ describe("BaseService RequestOptions forwarding — direct path", () => {
 			timeout: 6_000,
 		});
 		expect(getSpy).toHaveBeenCalledTimes(1);
-		const callOpts = getSpy.mock.calls[0]![1] as {
+		const callOpts = getSpy.mock.calls[0]?.[1] as {
 			signal?: AbortSignal;
 			timeout?: number;
 		};
@@ -117,7 +117,7 @@ describe("BaseService RequestOptions forwarding — direct path", () => {
 			{ signal: controller.signal, timeout: 6_000 },
 		);
 		expect(postSpy).toHaveBeenCalledTimes(1);
-		const callOpts = postSpy.mock.calls[0]![2] as {
+		const callOpts = postSpy.mock.calls[0]?.[2] as {
 			signal?: AbortSignal;
 			timeout?: number;
 		};
@@ -128,7 +128,7 @@ describe("BaseService RequestOptions forwarding — direct path", () => {
 	it("no options ⇒ no signal/timeout on the axios call (legacy parity)", async () => {
 		await svc.fetchDefaultTTL("https://example.test/x");
 		expect(getSpy).toHaveBeenCalledTimes(1);
-		const callOpts = getSpy.mock.calls[0]![1] as Record<string, unknown>;
+		const callOpts = getSpy.mock.calls[0]?.[1] as Record<string, unknown>;
 		expect(callOpts.signal).toBeUndefined();
 		expect(callOpts.timeout).toBeUndefined();
 	});
@@ -206,7 +206,7 @@ describe("BaseService RequestOptions forwarding — IQ Gateway path", () => {
 		 * We don't assert the URL shape here — that's gateway-routing behavior and
 		 * unchanged from v0.1. We assert the OPTIONS object.
 		 */
-		const callOpts = getSpy.mock.calls[0]![1] as {
+		const callOpts = getSpy.mock.calls[0]?.[1] as {
 			signal?: AbortSignal;
 			timeout?: number;
 		};
@@ -222,7 +222,7 @@ describe("BaseService RequestOptions forwarding — IQ Gateway path", () => {
 			{ signal: controller.signal, timeout: 6_000 },
 		);
 		expect(postSpy).toHaveBeenCalledTimes(1);
-		const callOpts = postSpy.mock.calls[0]![2] as {
+		const callOpts = postSpy.mock.calls[0]?.[2] as {
 			signal?: AbortSignal;
 			timeout?: number;
 		};

@@ -14,7 +14,7 @@ describe("executeTool error envelope", () => {
 	it("isolated-vm load failure → canonical message in {ok:false}", async () => {
 		const { executeTool } = await import("./tool.js");
 		const res = await executeTool.execute({ code: "async function run(){}" });
-		const inner = JSON.parse(res.content[0]!.text);
+		const inner = JSON.parse(res.content[0]?.text);
 		expect(res.isError).toBe(true);
 		expect(inner.ok).toBe(false);
 		expect(inner.error).toContain("isolated-vm native module failed to load");

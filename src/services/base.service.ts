@@ -114,7 +114,7 @@ export abstract class BaseService {
 
 			// Add DeBank API key if provided
 			if (env.DEBANK_API_KEY) {
-				headers["AccessKey"] = env.DEBANK_API_KEY;
+				headers.AccessKey = env.DEBANK_API_KEY;
 			}
 
 			const response = await axios.get<T>(url, {
@@ -144,7 +144,13 @@ export abstract class BaseService {
 		body: unknown,
 		options?: RequestOptions,
 	): Promise<T> {
-		const proxyUrl = new URL(env.IQ_GATEWAY_URL!);
+		if (!env.IQ_GATEWAY_URL || !env.IQ_GATEWAY_KEY) {
+			throw new Error(
+				"IQ_GATEWAY_URL and IQ_GATEWAY_KEY must be configured to use gateway",
+			);
+		}
+
+		const proxyUrl = new URL(env.IQ_GATEWAY_URL);
 		proxyUrl.searchParams.append("url", url);
 		proxyUrl.searchParams.append("method", "POST");
 		proxyUrl.searchParams.append("projectName", "debank_mcp");
@@ -153,7 +159,7 @@ export abstract class BaseService {
 			const response = await axios.post<T>(proxyUrl.href, body, {
 				headers: {
 					"Content-Type": "application/json",
-					"x-api-key": env.IQ_GATEWAY_KEY!,
+					"x-api-key": env.IQ_GATEWAY_KEY,
 				},
 				...(options?.signal ? { signal: options.signal } : {}),
 				...(options?.timeout !== undefined ? { timeout: options.timeout } : {}),
@@ -175,7 +181,7 @@ export abstract class BaseService {
 			};
 
 			if (env.DEBANK_API_KEY) {
-				headers["AccessKey"] = env.DEBANK_API_KEY;
+				headers.AccessKey = env.DEBANK_API_KEY;
 			}
 
 			const response = await axios.post<T>(url, body, {

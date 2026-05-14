@@ -84,9 +84,9 @@ describe("service markdown snapshots", () => {
 				lastRequest,
 				`${inv.name} did not call fetchWithToolConfig / postWithToolConfig`,
 			).toBeDefined();
-			expect(lastRequest!.method).toBe(inv.expect.method);
+			expect(lastRequest?.method).toBe(inv.expect.method);
 
-			const parsed = new URL(lastRequest!.url);
+			const parsed = new URL(lastRequest?.url);
 			expect(parsed.pathname).toBe(inv.expect.pathname);
 			const actualParams: Record<string, string> = {};
 			parsed.searchParams.forEach((v, k) => {
@@ -95,12 +95,12 @@ describe("service markdown snapshots", () => {
 			expect(actualParams).toEqual(inv.expect.searchParams);
 
 			if (inv.expect.cacheDurationSeconds !== undefined) {
-				expect(lastRequest!.cacheDuration).toBe(
+				expect(lastRequest?.cacheDuration).toBe(
 					inv.expect.cacheDurationSeconds,
 				);
 			}
 			if (inv.expect.body !== undefined) {
-				expect(lastRequest!.body).toEqual(inv.expect.body);
+				expect(lastRequest?.body).toEqual(inv.expect.body);
 			}
 
 			const expected = await fs.readFile(

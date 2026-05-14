@@ -5,7 +5,7 @@ import { searchDocsTool } from "../../src/mcp/search-docs/tool.js";
 describe("search_docs integration", () => {
 	it("'get token balance' surfaces getUserTokenBalance", async () => {
 		const res = await searchDocsTool.execute({ query: "get token balance" });
-		const inner = JSON.parse(res.content[0]!.text);
+		const inner = JSON.parse(res.content[0]?.text);
 		const names = inner.results
 			.map((r: { name?: string }) => r.name)
 			.filter(Boolean);
@@ -14,7 +14,7 @@ describe("search_docs integration", () => {
 
 	it("'explain tx' surfaces explain_transaction", async () => {
 		const res = await searchDocsTool.execute({ query: "explain tx" });
-		const inner = JSON.parse(res.content[0]!.text);
+		const inner = JSON.parse(res.content[0]?.text);
 		const names = inner.results
 			.map((r: { name?: string }) => r.name)
 			.filter(Boolean);
@@ -23,7 +23,7 @@ describe("search_docs integration", () => {
 
 	it("'polygon nfts' surfaces at least one NFT method", async () => {
 		const res = await searchDocsTool.execute({ query: "polygon nfts" });
-		const inner = JSON.parse(res.content[0]!.text);
+		const inner = JSON.parse(res.content[0]?.text);
 		const names = inner.results
 			.map((r: { name?: string }) => r.name)
 			.filter(Boolean);
@@ -35,7 +35,7 @@ describe("search_docs integration", () => {
 			query: "net curve",
 			detail: "verbose",
 		});
-		const inner = JSON.parse(res.content[0]!.text);
+		const inner = JSON.parse(res.content[0]?.text);
 		expect(inner.results.length).toBeGreaterThan(0);
 	});
 });

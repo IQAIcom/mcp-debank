@@ -29,7 +29,7 @@ describe("execute integration", () => {
 		const res = await executeTool.execute({
 			code: `async function run(d) { return await d.user.getUserChainBalance({ id: "0xabc", chain_id: "eth" }); }`,
 		});
-		const inner = JSON.parse(res.content[0]!.text);
+		const inner = JSON.parse(res.content[0]?.text);
 		expect(res.isError).toBe(false);
 		expect(inner.ok).toBe(true);
 		expect(inner.result).toEqual({ usd_value: 1234.56 });
@@ -39,7 +39,7 @@ describe("execute integration", () => {
 		const res = await executeTool.execute({
 			code: `async function run(d: any) { return null; }`,
 		});
-		const inner = JSON.parse(res.content[0]!.text);
+		const inner = JSON.parse(res.content[0]?.text);
 		expect(res.isError).toBe(true);
 		expect(inner.ok).toBe(false);
 		expect(inner.error.toLowerCase()).toMatch(/unexpected|syntax/);
@@ -49,7 +49,7 @@ describe("execute integration", () => {
 		const res = await executeTool.execute({
 			code: `async function run(){ throw new Error("boom"); }`,
 		});
-		const inner = JSON.parse(res.content[0]!.text);
+		const inner = JSON.parse(res.content[0]?.text);
 		expect(res.isError).toBe(true);
 		expect(inner.ok).toBe(false);
 		expect(inner.error).toBe("boom");
@@ -66,7 +66,7 @@ describe("execute integration", () => {
 			const res = await fast.execute({
 				code: `async function run(){ await new Promise(() => {}); }`,
 			});
-			const inner = JSON.parse(res.content[0]!.text);
+			const inner = JSON.parse(res.content[0]?.text);
 			expect(res.isError).toBe(true);
 			expect(inner.error).toContain("Execute timed out after");
 			expect(inner.error.toLowerCase()).toMatch(
@@ -89,7 +89,7 @@ describe("execute integration", () => {
 		const res = await executeTool.execute({
 			code: `async function run(d) { return await d.chain.getChain({ id: "eth" }); }`,
 		});
-		const inner = JSON.parse(res.content[0]!.text);
+		const inner = JSON.parse(res.content[0]?.text);
 		expect(res.isError).toBe(true);
 		expect(inner.error).toContain("DeBank call timed out after 5s");
 	}, 15_000);
@@ -118,7 +118,7 @@ describe("execute integration", () => {
 			const res = await executeFresh.execute({
 				code: `async function run(d) { const id = await d.resolveChain("Polygon"); return await d.user.getUserChainBalance({ id: "0xabc", chain_id: id }); }`,
 			});
-			const inner = JSON.parse(res.content[0]!.text);
+			const inner = JSON.parse(res.content[0]?.text);
 			expect(inner.ok).toBe(true);
 			expect(inner.result).toEqual({ usd_value: 99.9 });
 		} finally {

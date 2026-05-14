@@ -35,7 +35,7 @@ describe("tool-metadata side-effect-freeness", () => {
 			{
 				cwd: tmpCwd,
 				env: {
-					PATH: process.env.PATH!,
+					PATH: process.env.PATH ?? "",
 					DOTENV_CONFIG_PATH: "/dev/null",
 				},
 				timeout: 5_000,

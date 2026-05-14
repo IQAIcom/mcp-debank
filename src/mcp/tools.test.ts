@@ -24,14 +24,14 @@ describe("debank_resolve", () => {
 			name: "Binance Smart Chain",
 			type: "chain",
 		});
-		const inner = JSON.parse(res.content[0]!.text);
+		const inner = JSON.parse(res.content[0]?.text);
 		expect(inner).toEqual({ resolved: "bsc" });
 	});
 
 	it("ETH → eth", async () => {
 		const { resolveTool } = await import("./tools.js");
 		const res = await resolveTool.execute({ name: "ETH", type: "chain" });
-		const inner = JSON.parse(res.content[0]!.text);
+		const inner = JSON.parse(res.content[0]?.text);
 		expect(inner).toEqual({ resolved: "eth" });
 	});
 
@@ -41,7 +41,7 @@ describe("debank_resolve", () => {
 			name: "MadeUpChain",
 			type: "chain",
 		});
-		const inner = JSON.parse(res.content[0]!.text);
+		const inner = JSON.parse(res.content[0]?.text);
 		expect(inner.resolved).toBeNull();
 		expect(inner.error).toBe(
 			"Could not resolve 'MadeUpChain' as a chain. Try the exact chain ID (eth, bsc, matic, arb, …).",
@@ -77,7 +77,7 @@ describe("debank_get_supported_chain_list (default surface)", () => {
 
 		expect(getList).toHaveBeenCalledTimes(1);
 		expect(res.isError).toBe(false);
-		expect(res.content[0]!.text).toBe("# Supported Chains\n\n* eth\n* bsc");
+		expect(res.content[0]?.text).toBe("# Supported Chains\n\n* eth\n* bsc");
 	});
 
 	it("without _userQuery, setQuery is still called with empty string to clear prior state", async () => {
@@ -111,7 +111,7 @@ describe("debank_get_supported_chain_list (default surface)", () => {
 		expect(setQueryToken).toHaveBeenCalledWith("");
 		expect(setQueryTransaction).toHaveBeenCalledWith("");
 		expect(setQueryUser).toHaveBeenCalledWith("");
-		expect(res.content[0]!.text).toBe("# Chains");
+		expect(res.content[0]?.text).toBe("# Chains");
 	});
 
 	it("description and schema match v0.1 verbatim", async () => {

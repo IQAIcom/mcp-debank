@@ -40,7 +40,7 @@ describe("tool-handlers.legacyTools", () => {
 			(t) => t.name === "debank_get_supported_chain_list",
 		);
 		expect(tool).toBeDefined();
-		const result = await tool!.execute({ _userQuery: "test" });
+		const result = await tool?.execute({ _userQuery: "test" });
 		expect(result).toBe("# chains");
 	});
 
@@ -59,9 +59,9 @@ describe("tool-handlers.legacyTools", () => {
 		expect(tool).toBeDefined();
 
 		// 1st call with a query — sets currentQuery on each service
-		await tool!.execute({ _userQuery: "alice" });
+		await tool?.execute({ _userQuery: "alice" });
 		// 2nd call WITHOUT a query — must clear, not leak "alice"
-		await tool!.execute({});
+		await tool?.execute({});
 
 		// Last setQuery call should be the clear ("")
 		expect(setQuerySpy).toHaveBeenLastCalledWith("");
@@ -78,7 +78,7 @@ describe("tool-handlers.legacyTools", () => {
 
 		const tool = legacyTools.find((t) => t.name === "debank_get_chain");
 		expect(tool).toBeDefined();
-		await tool!.execute({ id: "Ethereum" });
+		await tool?.execute({ id: "Ethereum" });
 		expect(getChain).toHaveBeenCalledWith(
 			expect.objectContaining({ id: "eth" }),
 		);
@@ -118,8 +118,8 @@ describe("TOOL_METADATA method-path resolution", () => {
 
 		const resolve = (path: string): unknown => {
 			const [singletonName, methodName] = path.split(".");
-			const singleton = SERVICE_MAP[singletonName!];
-			return singleton?.[methodName!];
+			if (!singletonName || !methodName) return undefined;
+			return SERVICE_MAP[singletonName]?.[methodName];
 		};
 
 		for (const m of TOOL_METADATA) {
