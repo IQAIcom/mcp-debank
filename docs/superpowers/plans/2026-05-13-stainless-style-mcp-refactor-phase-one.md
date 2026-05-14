@@ -976,7 +976,15 @@ async function stubFetchers() {
     return JSON.parse(raw);
   };
   proto.fetchWithToolConfig = async function (url: string, cacheDuration?: number) {
-    lastRequest.value = { method: "GET", url, cacheDuration };
+    // v0.1 default-TTL methods call fetchWithToolConfig(url) with one arg.
+    // The real method has `cacheDuration = this.DEFAULT_CACHE_TTL_SECONDS`
+    // as a parameter default, but stubbing bypasses that. Coerce undefined
+    // → 300 here so INVOCATIONS' `cacheDurationSeconds: TTL.default` lines up.
+    // A refactor that passes `options` as the 2nd positional arg (the bug
+    // class this check exists for) is still caught: a non-number 2nd arg
+    // won't equal 300 and the assertion fails with a useful diff.
+    const ttl = typeof cacheDuration === "number" ? cacheDuration : 300;
+    lastRequest.value = { method: "GET", url, cacheDuration: ttl };
     return loadFixture();
   };
   proto.postWithToolConfig = async function (url: string, body: unknown) {
@@ -3951,7 +3959,13 @@ describe("service markdown snapshots", () => {
       return JSON.parse(raw);
     };
     proto.fetchWithToolConfig = async function (url: string, cacheDuration?: number) {
-      lastRequest = { method: "GET", url, cacheDuration };
+      // See scripts/snapshot-baseline.ts for the rationale — v0.1 default-TTL
+      // methods call this with one arg; coerce undefined → 300 so the
+      // INVOCATIONS expected TTLs line up. A refactor that passes `options`
+      // as the 2nd positional arg surfaces as a non-number cacheDuration
+      // and fails the assertion below.
+      const ttl = typeof cacheDuration === "number" ? cacheDuration : 300;
+      lastRequest = { method: "GET", url, cacheDuration: ttl };
       return loadFixture();
     };
     proto.postWithToolConfig = async function (url: string, body: unknown) {
