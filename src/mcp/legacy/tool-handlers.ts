@@ -60,10 +60,12 @@ export const legacyTools = TOOL_METADATA.map((m: ToolMetadata) => ({
 		_userQuery: z.string().optional(),
 	}),
 	execute: async (args: Record<string, unknown>) => {
-		// Per-tool resolve fixups (v0.1 quirks that resolveEntities doesn't cover).
-		// debank_get_chain treats args.id as a CHAIN name (not a token); the
-		// generic resolveEntities() only resolves id as a token when chain_id
-		// is also present, so this one needs its own pre-step.
+		/**
+		 * Per-tool resolve fixups (v0.1 quirks that resolveEntities doesn't cover).
+		 * debank_get_chain treats args.id as a CHAIN name (not a token); the
+		 * generic resolveEntities() only resolves id as a token when chain_id
+		 * is also present, so this one needs its own pre-step.
+		 */
 		if (m.name === "debank_get_chain") {
 			const id = args.id;
 			if (typeof id === "string" && needsResolution(id, "chain")) {
@@ -72,10 +74,12 @@ export const legacyTools = TOOL_METADATA.map((m: ToolMetadata) => ({
 			}
 		}
 		await resolveEntities(args);
-		// Always set the query, including the empty-string fallback. Services are
-		// singletons — a previous call's _userQuery would leak into this one's JQ
-		// filtering otherwise. formatResponse gates on truthy currentQuery so ""
-		// correctly disables filtering for this call.
+		/**
+		 * Always set the query, including the empty-string fallback. Services are
+		 * singletons — a previous call's _userQuery would leak into this one's JQ
+		 * filtering otherwise. formatResponse gates on truthy currentQuery so ""
+		 * correctly disables filtering for this call.
+		 */
 		const q = (args._userQuery as string | undefined) ?? "";
 		chainService.setQuery(q);
 		protocolService.setQuery(q);

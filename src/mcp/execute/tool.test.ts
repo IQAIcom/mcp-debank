@@ -22,8 +22,10 @@ describe("executeTool error envelope", () => {
 	});
 
 	it("BigInt result → ok:false canonical 'not JSON-serializable' envelope", async () => {
-		// Replace the existing mock with a sandbox stub that returns a BigInt result
-		// — this simulates `async function run(){ return 1n; }` from the guest.
+		/**
+		 * Replace the existing mock with a sandbox stub that returns a BigInt result
+		 * — this simulates `async function run(){ return 1n; }` from the guest.
+		 */
 		vi.resetModules();
 		vi.doMock("./sandbox.js", () => ({
 			runInSandbox: vi.fn(async () => ({

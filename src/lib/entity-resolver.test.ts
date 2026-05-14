@@ -35,9 +35,11 @@ describe("resolveWrappedToken", () => {
 	});
 
 	it("accepts chain-specific wrapped-native symbols like WBNB / WMATIC / WAVAX (parity with v0.1 needsResolution)", async () => {
-		// These wrap-symbols were handled by v0.1 legacy auto-resolution via
-		// needsResolution(..., "token") returning true. The Code Mode public
-		// helper must accept them too.
+		/**
+		 * These wrap-symbols were handled by v0.1 legacy auto-resolution via
+		 * needsResolution(..., "token") returning true. The Code Mode public
+		 * helper must accept them too.
+		 */
 		const wbnb = resolveWrappedToken("WBNB", "bsc");
 		const wmatic = resolveWrappedToken("WMATIC", "matic");
 		const wavax = resolveWrappedToken("WAVAX", "avax");
@@ -47,8 +49,10 @@ describe("resolveWrappedToken", () => {
 	});
 
 	it("returns null for 0x addresses (no resolution needed)", async () => {
-		// needsResolution short-circuits on 0x...40-char inputs, so resolveWrappedToken
-		// returns null and callers know to use the address as-is.
+		/**
+		 * needsResolution short-circuits on 0x...40-char inputs, so resolveWrappedToken
+		 * returns null and callers know to use the address as-is.
+		 */
 		expect(resolveWrappedToken(`0x${"a".repeat(40)}`, "eth")).toBeNull();
 	});
 });

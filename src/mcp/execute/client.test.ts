@@ -1,8 +1,10 @@
 // src/mcp/execute/client.test.ts
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Partial mock so resolveWrappedToken keeps its real chains.ts lookup.
-// .js extension matches the runtime import string (NodeNext project).
+/**
+ * Partial mock so resolveWrappedToken keeps its real chains.ts lookup.
+ * .js extension matches the runtime import string (NodeNext project).
+ */
 vi.mock("../../lib/entity-resolver.js", async (importOriginal) => {
 	const actual =
 		await importOriginal<typeof import("../../lib/entity-resolver.js")>();
@@ -260,11 +262,13 @@ describe("execute/client.ts proxy forwarding", () => {
 	});
 
 	it("axios ECONNABORTED through *Raw → client surfaces canonical 5s timeout message", async () => {
-		// Simulate the failure mode the bot was concerned about: axios throws an
-		// AxiosError with code "ECONNABORTED", extractErrorMessage wraps it and
-		// preserves the code, the service *Raw() catch's logAndWrapError returns
-		// it unchanged, and client.ts's catch should detect e.code === "ECONNABORTED"
-		// and surface the canonical "DeBank call timed out after 5s" message.
+		/**
+		 * Simulate the failure mode the bot was concerned about: axios throws an
+		 * AxiosError with code "ECONNABORTED", extractErrorMessage wraps it and
+		 * preserves the code, the service *Raw() catch's logAndWrapError returns
+		 * it unchanged, and client.ts's catch should detect e.code === "ECONNABORTED"
+		 * and surface the canonical "DeBank call timed out after 5s" message.
+		 */
 		const servicesMod = await import("../../services/index.js");
 		const fakeWrappedError = Object.assign(
 			new Error("timeout of 6000ms exceeded"),

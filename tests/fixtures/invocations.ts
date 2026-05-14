@@ -54,9 +54,11 @@ export type Invocation = {
 	expect: ExpectedRequest;
 };
 
-// Cache TTL constants — must match config.ts. Sourced literally from
-// src/config.ts; do NOT compute or import to avoid coupling test fixtures
-// to runtime config.
+/**
+ * Cache TTL constants — must match config.ts. Sourced literally from
+ * src/config.ts; do NOT compute or import to avoid coupling test fixtures
+ * to runtime config.
+ */
 const TTL = {
 	default: 300, // config.debankDefaultLifeTime
 	chainData: 300, // config.chainDataLifeTime

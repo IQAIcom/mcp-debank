@@ -82,12 +82,14 @@ export async function resolveChains(
 	}
 }
 
-// resolveWrappedToken is also exposed to Code Mode agents as
-// `debank.resolveWrappedToken(keyword, chainId)`. We must validate the
-// keyword here so unrelated symbols like "USDT" don't silently return the
-// chain's wrapped native address. Delegating to needsResolution(..., "token")
-// keeps the keyword set in lockstep with the legacy auto-resolution path
-// (validators.ts) — no risk of divergence.
+/**
+ * resolveWrappedToken is also exposed to Code Mode agents as
+ * `debank.resolveWrappedToken(keyword, chainId)`. We must validate the
+ * keyword here so unrelated symbols like "USDT" don't silently return the
+ * chain's wrapped native address. Delegating to needsResolution(..., "token")
+ * keeps the keyword set in lockstep with the legacy auto-resolution path
+ * (validators.ts) — no risk of divergence.
+ */
 export function resolveWrappedToken(
 	tokenKeyword: string,
 	chainId: string,

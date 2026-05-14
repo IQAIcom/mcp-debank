@@ -11,9 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * spy and BaseService share the same instance.
  */
 
-// Direct-path tests use the env already pruned by tests/integration/setup.ts —
-// IQ_GATEWAY_URL/KEY are deleted there, so fetchWithToolConfig routes to
-// fetchDirect.
+/**
+ * Direct-path tests use the env already pruned by tests/integration/setup.ts —
+ * IQ_GATEWAY_URL/KEY are deleted there, so fetchWithToolConfig routes to
+ * fetchDirect.
+ */
 describe("BaseService RequestOptions forwarding — direct path", () => {
 	let svc: {
 		fetchDefaultTTL: (...a: unknown[]) => Promise<unknown>;
@@ -198,8 +200,10 @@ describe("BaseService RequestOptions forwarding — IQ Gateway path", () => {
 			timeout: 6_000,
 		});
 		expect(getSpy).toHaveBeenCalledTimes(1);
-		// We don't assert the URL shape here — that's gateway-routing behavior and
-		// unchanged from v0.1. We assert the OPTIONS object.
+		/**
+		 * We don't assert the URL shape here — that's gateway-routing behavior and
+		 * unchanged from v0.1. We assert the OPTIONS object.
+		 */
 		const callOpts = getSpy.mock.calls[0]![1] as {
 			signal?: AbortSignal;
 			timeout?: number;
