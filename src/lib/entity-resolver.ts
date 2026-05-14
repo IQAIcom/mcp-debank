@@ -82,21 +82,20 @@ export async function resolveChains(
 	}
 }
 
-// Recognised keywords that refer to a chain's wrapped native token.
-// Must stay in sync with `needsResolution`'s wrappedTokenKeywords list in
-// src/lib/utils/validators.ts — both lists must agree on what qualifies.
-const WRAPPED_TOKEN_KEYWORDS = ["weth", "wrapped native", "native token"];
-
+// resolveWrappedToken is also exposed to Code Mode agents as
+// `debank.resolveWrappedToken(keyword, chainId)`. We must validate the
+// keyword here so unrelated symbols like "USDT" don't silently return the
+// chain's wrapped native address. Delegating to needsResolution(..., "token")
+// keeps the keyword set in lockstep with the legacy auto-resolution path
+// (validators.ts) — no risk of divergence.
 export function resolveWrappedToken(
 	tokenKeyword: string,
 	chainId: string,
 ): string | null {
 	if (
 		typeof tokenKeyword !== "string" ||
-		!WRAPPED_TOKEN_KEYWORDS.includes(tokenKeyword.trim().toLowerCase())
+		!needsResolution(tokenKeyword, "token")
 	) {
-		// Not a recognised wrapped-token keyword — return null so callers don't
-		// silently get the chain's WETH for "USDT" or any other unrelated symbol.
 		return null;
 	}
 	try {
