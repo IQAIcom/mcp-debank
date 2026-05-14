@@ -95,10 +95,10 @@ Expected: `isolated-vm smoke ok`. CI runs the equivalent step in Task 28 so a br
 
 Run:
 ```bash
-pnpm add -D vitest @vitest/coverage-v8 msw tsx
+pnpm add -D vitest @vitest/coverage-v8 msw tsx cross-env
 ```
 
-Expected: all four added to `devDependencies`.
+Expected: all five added to `devDependencies`. `cross-env` is used by the test scripts (Task 2) to set `NODE_OPTIONS=--no-node-snapshot` portably across POSIX shells and Windows.
 
 - [ ] **Step 3: Verify `zod-to-json-schema` is already present and probe Zod 4 compatibility**
 
@@ -179,11 +179,7 @@ NODE_OPTIONS=--no-node-snapshot pnpm exec vitest run src/mcp/execute/sandbox.tes
 
 The Task 28 CI env block sets `NODE_OPTIONS=--no-node-snapshot` at the job level so every CI step inherits it. Local runs via `pnpm test` / `pnpm test:watch` get it from the script. Direct `pnpm exec` calls need the explicit prefix.
 
-Install `cross-env` so the `NODE_OPTIONS=` prefix works on Windows shells too:
-
-```bash
-pnpm add -D cross-env
-```
+`cross-env` was already installed in Task 1 Step 2 — it makes the `NODE_OPTIONS=` prefix work portably across POSIX shells and Windows. No additional install here.
 
 **Engines:** also add an `engines` block to package.json declaring the minimum Node version, so `pnpm install` warns on Node <22:
 
