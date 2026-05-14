@@ -258,4 +258,53 @@ describe("execute/client.ts proxy forwarding", () => {
 		});
 		expect(msg).toBe("upstream 503");
 	});
+
+	it("axios ECONNABORTED through *Raw → client surfaces canonical 5s timeout message", async () => {
+		// Simulate the failure mode the bot was concerned about: axios throws an
+		// AxiosError with code "ECONNABORTED", extractErrorMessage wraps it and
+		// preserves the code, the service *Raw() catch's logAndWrapError returns
+		// it unchanged, and client.ts's catch should detect e.code === "ECONNABORTED"
+		// and surface the canonical "DeBank call timed out after 5s" message.
+		const servicesMod = await import("../../services/index.js");
+		const fakeWrappedError = Object.assign(
+			new Error("timeout of 6000ms exceeded"),
+			{
+				code: "ECONNABORTED",
+			},
+		);
+		vi.spyOn(
+			servicesMod.userService as unknown as {
+				getUserChainBalanceRaw: (...a: unknown[]) => Promise<unknown>;
+			},
+			"getUserChainBalanceRaw",
+		).mockRejectedValue(fakeWrappedError as never);
+
+		const mod = await import("isolated-vm");
+		const ivm =
+			(mod as { default?: typeof import("isolated-vm") }).default ?? mod;
+		isolate = new ivm.Isolate({ memoryLimit: 64 });
+		const ctx = await isolate.createContext();
+		await ctx.global.set(
+			"debank",
+			new ivm.ExternalCopy({}).copyInto({ release: true }),
+		);
+
+		const { installDebankClient } = await import("./client.js");
+		await installDebankClient(ctx);
+
+		const script = await isolate.compileScript(
+			`(async () => {
+				try { await debank.user.getUserChainBalance({chain_id:"eth", id:"0xabc"}); return "no-error"; }
+				catch (e) { return e.message; }
+			})()`,
+		);
+		const msg = await script.run(ctx, {
+			timeout: 5_000,
+			promise: true,
+			copy: true,
+		});
+		expect(msg).toBe(
+			"DeBank call timed out after 5s: debank.user.getUserChainBalance",
+		);
+	});
 });
