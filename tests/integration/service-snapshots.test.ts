@@ -107,7 +107,9 @@ describe("service markdown snapshots", () => {
 				path.join(snapshotsDir, `${inv.name}.md`),
 				"utf-8",
 			);
-			expect(md).toBe(expected);
+			// Mirror the trailing-whitespace strip applied by scripts/snapshot-baseline.ts.
+			const cleaned = md.replace(/[ \t]+$/gm, "");
+			expect(cleaned).toBe(expected);
 		});
 	}
 });

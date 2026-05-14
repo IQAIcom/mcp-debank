@@ -168,7 +168,12 @@ async function main() {
 			// here instead of slipping into the baseline and surfacing later in
 			// the Task 27 regression.
 			assertRequestMatches(inv.name, inv.expect, lastRequest.value);
-			await fs.writeFile(path.join(snapshotsDir, `${inv.name}.md`), md);
+			// Strip trailing whitespace per line. toMarkdown emits `**Key:** ` with a
+			// trailing space for empty values; committing those tickles `git diff --check`
+			// in CI. The regression test in service-snapshots.test.ts applies the same
+			// transform on the live output so byte-identity is preserved.
+			const cleaned = md.replace(/[ \t]+$/gm, "");
+			await fs.writeFile(path.join(snapshotsDir, `${inv.name}.md`), cleaned);
 			count++;
 			console.log(`✓ ${inv.name}`);
 		} catch (err) {

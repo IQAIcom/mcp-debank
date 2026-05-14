@@ -1,8 +1,8 @@
 # Transaction Explanation
 
 **Action type:** transfer
-**Contract protocol name:** 
-**Contract protocol logo url:** 
+**Contract protocol name:**
+**Contract protocol logo url:**
 **Actions:**
 | Type | Data |
 | --- | --- |
