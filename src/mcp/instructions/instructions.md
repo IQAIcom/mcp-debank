@@ -118,7 +118,7 @@ The `debank.resolveWrappedToken(keyword, chain_id)` helper converts the keywords
 
 ```js
 async function run(debank) {
-  const wethAddr = debank.resolveWrappedToken("WETH", "eth");
+  const wethAddr = await debank.resolveWrappedToken("WETH", "eth");
   return await debank.token.getTokenInformation({ id: wethAddr, chain_id: "eth" });
 }
 ```
