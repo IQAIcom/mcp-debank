@@ -91,7 +91,7 @@ async function stubFetchers() {
 	};
 }
 
-/** Compare the recorded request against the expected metadata. Throws on mismatch. */
+// Compare the recorded request against the expected metadata. Throws on mismatch.
 function assertRequestMatches(
 	name: string,
 	expected: import("../tests/fixtures/invocations.js").ExpectedRequest,

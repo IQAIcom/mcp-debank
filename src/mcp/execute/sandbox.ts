@@ -33,12 +33,10 @@ export type SandboxResult = {
 	err_lines: string[];
 };
 
-/**
- * Runs JavaScript in a fresh V8 isolate with a `debank` client injected.
- * @param code  Agent-supplied JS defining `async function run(debank)`.
- * @param installClient Callback invoked with the isolate context; must
- *   install `globalThis.debank.*` callbacks (see client.ts).
- */
+// Runs JavaScript in a fresh V8 isolate with a `debank` client injected.
+//   code:           Agent-supplied JS defining `async function run(debank)`.
+//   installClient:  Callback invoked with the isolate context; must install
+//                   `globalThis.debank.*` callbacks (see client.ts).
 export async function runInSandbox(
 	code: string,
 	installClient: (ctx: import("isolated-vm").Context) => Promise<void>,

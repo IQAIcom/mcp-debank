@@ -42,14 +42,12 @@ async function loadCookbook(): Promise<
 	return entries;
 }
 
-/**
- * Serialise a plain JS value to a TypeScript/Biome-compliant literal.
- * Rules:
- *   - Object keys that are valid JS identifiers → unquoted
- *   - String values → JSON.stringify (keeps double quotes)
- *   - Trailing comma on every property / array element
- *   - Tab indentation (one extra tab per nesting level)
- */
+// Serialise a plain JS value to a TypeScript/Biome-compliant literal.
+// Rules:
+//   - Object keys that are valid JS identifiers → unquoted
+//   - String values → JSON.stringify (keeps double quotes)
+//   - Trailing comma on every property / array element
+//   - Tab indentation (one extra tab per nesting level)
 function serialize(value: unknown, depth = 0): string {
 	const tab = "\t".repeat(depth);
 	const tab1 = "\t".repeat(depth + 1);

@@ -4,13 +4,11 @@
 
 import axios from "axios";
 
-/**
- * Extracts a user-friendly error message from an unknown error.
- * For AxiosError input, preserves `code` (e.g., ECONNABORTED, ETIMEDOUT)
- * and stores the original error in `cause` so downstream consumers (notably
- * the sandbox proxy timeout detection in src/mcp/execute/client.ts) can
- * distinguish axios timeouts from other failures.
- */
+// Extracts a user-friendly error message from an unknown error.
+// For AxiosError input, preserves `code` (e.g., ECONNABORTED, ETIMEDOUT)
+// and stores the original error in `cause` so downstream consumers (notably
+// the sandbox proxy timeout detection in src/mcp/execute/client.ts) can
+// distinguish axios timeouts from other failures.
 export function extractErrorMessage(error: unknown): Error {
 	if (axios.isAxiosError(error)) {
 		const errorPayload = error.response?.data ?? error.message;

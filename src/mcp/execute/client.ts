@@ -53,13 +53,11 @@ function resolveRaw(
 	return (args, options) => fn.call(singleton, args, options);
 }
 
-/**
- * Builds a host-side Reference whose async body:
- *   1. Deserialises JSON args from the guest string,
- *   2. Races a *Raw() call against an AbortController timer,
- *   3. Returns an ExternalCopy({ ok, data | error }) envelope — never throws,
- *      so errors route back to the guest as catchable exceptions.
- */
+// Builds a host-side Reference whose async body:
+//   1. Deserialises JSON args from the guest string,
+//   2. Races a *Raw() call against an AbortController timer,
+//   3. Returns an ExternalCopy({ ok, data | error }) envelope — never throws,
+//      so errors route back to the guest as catchable exceptions.
 function makeHostRef(
 	ivm: typeof import("isolated-vm"),
 	rawFn: (
@@ -112,11 +110,9 @@ function makeHostRef(
 	});
 }
 
-/**
- * Wraps a sync or async host fn in a Reference that returns an envelope.
- * For async resolvers (resolveChain, resolveChains) pass async:true.
- * For sync resolvers (resolveWrappedToken) pass async:false.
- */
+// Wraps a sync or async host fn in a Reference that returns an envelope.
+// For async resolvers (resolveChain, resolveChains) pass async:true.
+// For sync resolvers (resolveWrappedToken) pass async:false.
 function makeResolverRef(
 	ivm: typeof import("isolated-vm"),
 	fn: (...args: unknown[]) => unknown,
