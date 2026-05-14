@@ -859,14 +859,20 @@ export const INVOCATIONS: Invocation[] = [
     expect: { method: "GET", urlIncludes: ["/user/all_history_list", "id=0xabc"] },
   },
   {
+    // v0.1 signature is `{id: string}` only — getUserTokenAuthorizedList
+    // ignores chain_id and queries cross-chain. Preserve that for phase-one
+    // parity (deciding whether to add chain_id is a separate bug-fix
+    // proposal). Reference: src/services/user.service.ts:370.
     name: "get_user_token_authorized_list",
-    call: (s) => s.userService.getUserTokenAuthorizedList({ id: "0xabc", chain_id: "eth" }),
-    expect: { method: "GET", urlIncludes: ["/user/token_authorized_list", "id=0xabc", "chain_id=eth"] },
+    call: (s) => s.userService.getUserTokenAuthorizedList({ id: "0xabc" }),
+    expect: { method: "GET", urlIncludes: ["/user/token_authorized_list", "id=0xabc"] },
   },
   {
+    // Same v0.1 shape as above — id only, no chain_id.
+    // Reference: src/services/user.service.ts:386.
     name: "get_user_nft_authorized_list",
-    call: (s) => s.userService.getUserNftAuthorizedList({ id: "0xabc", chain_id: "eth" }),
-    expect: { method: "GET", urlIncludes: ["/user/nft_authorized_list", "id=0xabc", "chain_id=eth"] },
+    call: (s) => s.userService.getUserNftAuthorizedList({ id: "0xabc" }),
+    expect: { method: "GET", urlIncludes: ["/user/nft_authorized_list", "id=0xabc"] },
   },
   {
     name: "get_user_total_balance",
@@ -1904,7 +1910,9 @@ async function run(debank) {
 
 \`\`\`js
 async function run(debank) {
-  const approvals = await debank.user.getUserTokenAuthorizedList({ id: "0xWALLET", chain_id: "eth" });
+  // Note: v0.1 service signature is `{id}` only — this method queries
+  // approvals across all chains the wallet has interacted with.
+  const approvals = await debank.user.getUserTokenAuthorizedList({ id: "0xWALLET" });
   // Filter to unlimited approvals
   return approvals.filter(a => a.value === "unlimited" || Number(a.value) > 1e20);
 }
@@ -3760,9 +3768,13 @@ describe("lazy isolated-vm", () => {
       // Always reap the child AND wait for it to actually exit — `child.kill()`
       // sends SIGTERM but returns immediately, leaving stdio handles alive
       // briefly. A subsequent test (or this test's vitest hook teardown) can
-      // race against those handles and flake. Close stdin first to signal
-      // shutdown the cooperative way, then SIGTERM, then await 'exit' (with
-      // a SIGKILL fallback if it doesn't exit within 2 s).
+      // race against those handles and flake. Sequence:
+      //   1. child.stdin.end() — cooperative shutdown signal
+      //   2. SIGTERM
+      //   3. await 'exit'/'close' (whichever fires first)
+      //   4. If still alive after 2 s, SIGKILL, then await exit AGAIN
+      //   5. If SIGKILL doesn't reap within 1 s, give up — vitest's afterEach
+      //      will surface the leak
       try { child.stdin.end(); } catch { /* already closed */ }
       const exited = new Promise<void>((resolve) => {
         if (child.exitCode !== null || child.signalCode !== null) return resolve();
@@ -3770,17 +3782,32 @@ describe("lazy isolated-vm", () => {
         child.once("close", () => resolve());
       });
       if (!child.killed) child.kill();
+      const sigtermTimer: { fired: boolean } = { fired: false };
       await Promise.race([
         exited,
-        new Promise<void>((resolve) =>
-          setTimeout(() => {
+        new Promise<void>((resolve) => {
+          const t = setTimeout(() => {
+            sigtermTimer.fired = true;
             if (!child.killed || (child.exitCode === null && child.signalCode === null)) {
               child.kill("SIGKILL");
             }
             resolve();
-          }, 2_000).unref?.(),
-        ),
+          }, 2_000);
+          t.unref?.();
+        }),
       ]);
+      // If SIGKILL was the path taken, keep waiting for the actual exit so
+      // stdio handles fully close. Bounded by 1 s — if SIGKILL doesn't reap
+      // by then, something is very wrong and the leak is a real signal.
+      if (sigtermTimer.fired && child.exitCode === null && child.signalCode === null) {
+        await Promise.race([
+          exited,
+          new Promise<void>((resolve) => {
+            const t = setTimeout(resolve, 1_000);
+            t.unref?.();
+          }),
+        ]);
+      }
     }
   }, 30_000);
 });
@@ -3946,7 +3973,28 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+
+      # 1. Build first so prebuild regenerates the committed generated files.
+      - run: pnpm run build
+
+      # 2. Fail loudly if the regenerated files differ from what's committed.
+      #    Mirrors Task 30 Step 2. Catches engineers who edited a generator
+      #    source (tool-metadata.ts, cookbook/, instructions.md) without
+      #    committing the regenerated artifact, AND catches non-deterministic
+      #    generator output.
+      - name: verify generated files are committed and unmodified
+        run: |
+          git diff --exit-code \
+            src/mcp/search-docs/embedded-index.ts \
+            src/mcp/instructions/instructions.generated.ts
+
+      # 3. Lint AFTER the build/diff check — linting stale artifacts is
+      #    worthless. By this point we know the committed files match what
+      #    the generators emit; lint proves what they emit is Biome-clean.
       - run: pnpm lint
+
+      # 4. Tests. `pretest` runs `pnpm run build` again; that's redundant
+      #    after Step 1 (deterministic generators) but harmless.
       - run: pnpm test
 ```
 
