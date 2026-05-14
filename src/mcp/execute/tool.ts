@@ -48,10 +48,27 @@ export const executeTool = {
 			};
 		}
 
-		const inner = JSON.stringify(sandboxResult);
+		// JSON.stringify can throw on BigInt, circular refs, or other non-JSON
+		// values returned from the sandbox. Normalize to the {ok:false} envelope
+		// so the MCP contract ("always return a valid envelope") holds.
+		let inner: string;
+		let isError: boolean;
+		try {
+			inner = JSON.stringify(sandboxResult);
+			isError = !sandboxResult.ok;
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			inner = JSON.stringify({
+				ok: false,
+				error: `Result is not JSON-serializable: ${msg}`,
+				log_lines: sandboxResult.log_lines,
+				err_lines: sandboxResult.err_lines,
+			});
+			isError = true;
+		}
 		return {
 			content: [{ type: "text" as const, text: inner }],
-			isError: !sandboxResult.ok,
+			isError,
 		};
 	},
 };
