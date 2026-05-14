@@ -63,14 +63,12 @@ export const supportedChainListTool = {
 	parameters: CHAIN_LIST_PARAMS,
 	annotations: { readOnlyHint: true },
 	execute: async (args: z.infer<typeof CHAIN_LIST_PARAMS>) => {
-		const q = args._userQuery;
-		if (q) {
-			chainService.setQuery(q);
-			protocolService.setQuery(q);
-			tokenService.setQuery(q);
-			transactionService.setQuery(q);
-			userService.setQuery(q);
-		}
+		const q = args._userQuery ?? "";
+		chainService.setQuery(q);
+		protocolService.setQuery(q);
+		tokenService.setQuery(q);
+		transactionService.setQuery(q);
+		userService.setQuery(q);
 		const md = await chainService.getSupportedChainList();
 		return { content: [{ type: "text" as const, text: md }], isError: false };
 	},

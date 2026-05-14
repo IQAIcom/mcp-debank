@@ -80,7 +80,7 @@ describe("debank_get_supported_chain_list (default surface)", () => {
 		expect(res.content[0]!.text).toBe("# Supported Chains\n\n* eth\n* bsc");
 	});
 
-	it("works without _userQuery (no setQuery calls on ANY service)", async () => {
+	it("without _userQuery, setQuery is still called with empty string to clear prior state", async () => {
 		const servicesMod = await import("../services/index.js");
 		const setQueryChain = vi
 			.spyOn(servicesMod.chainService, "setQuery")
@@ -105,11 +105,12 @@ describe("debank_get_supported_chain_list (default surface)", () => {
 		const { supportedChainListTool } = await import("./tools.js");
 		const res = await supportedChainListTool.execute({});
 
-		expect(setQueryChain).not.toHaveBeenCalled();
-		expect(setQueryProtocol).not.toHaveBeenCalled();
-		expect(setQueryToken).not.toHaveBeenCalled();
-		expect(setQueryTransaction).not.toHaveBeenCalled();
-		expect(setQueryUser).not.toHaveBeenCalled();
+		// Empty string clears any leaked query from a prior call (services are singletons).
+		expect(setQueryChain).toHaveBeenCalledWith("");
+		expect(setQueryProtocol).toHaveBeenCalledWith("");
+		expect(setQueryToken).toHaveBeenCalledWith("");
+		expect(setQueryTransaction).toHaveBeenCalledWith("");
+		expect(setQueryUser).toHaveBeenCalledWith("");
 		expect(res.content[0]!.text).toBe("# Chains");
 	});
 
