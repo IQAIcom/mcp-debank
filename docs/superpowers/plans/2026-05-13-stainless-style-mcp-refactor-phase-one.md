@@ -2819,7 +2819,7 @@ git commit -m "feat(mcp/search-docs): add MiniSearch-backed search_docs tool"
 
 ```ts
 // src/mcp/tools.test.ts
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 vi.mock("../lib/entity-resolver.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/entity-resolver.js")>();
@@ -2831,6 +2831,16 @@ vi.mock("../lib/entity-resolver.js", async (importOriginal) => {
       return null;
     }),
   };
+});
+
+// Restore service singleton spies after every test so mocked methods don't
+// stay patched for the rest of the file (or, with shared workers, the rest
+// of the worker). The chain-list tests below spyOn(setQuery) +
+// spyOn(getSupportedChainList) on the real singletons; without restoreAllMocks
+// those spies would leak into later test files that import the same
+// singletons.
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("debank_resolve", () => {
@@ -3153,7 +3163,7 @@ git commit -m "feat(server): rewire entry to use new MCP surface; read version f
 
 ```ts
 // tests/integration/execute.test.ts
-import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from "vitest";
 import { setupServer } from "msw/node";
 import { http, HttpResponse } from "msw";
 import { executeTool } from "../../src/mcp/execute/tool.js";
@@ -3164,7 +3174,11 @@ const server = setupServer(
   ),
 );
 
-beforeAll(() => server.listen());
+// onUnhandledRequest: "error" makes any unexpected DeBank call fail the test
+// loudly instead of warning + passing through. Per-test handlers added via
+// server.use(...) below are wiped in afterEach so they don't leak.
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe("execute integration", () => {
