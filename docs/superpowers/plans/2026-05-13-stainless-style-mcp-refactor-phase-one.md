@@ -975,15 +975,27 @@ async function stubFetchers() {
     const raw = await fs.readFile(path.join(fixturesDir, `${key}.json`), "utf-8");
     return JSON.parse(raw);
   };
-  proto.fetchWithToolConfig = async function (url: string, cacheDuration?: number) {
+  proto.fetchWithToolConfig = async function (url: string, cacheDuration?: unknown) {
     // v0.1 default-TTL methods call fetchWithToolConfig(url) with one arg.
     // The real method has `cacheDuration = this.DEFAULT_CACHE_TTL_SECONDS`
-    // as a parameter default, but stubbing bypasses that. Coerce undefined
-    // → 300 here so INVOCATIONS' `cacheDurationSeconds: TTL.default` lines up.
-    // A refactor that passes `options` as the 2nd positional arg (the bug
-    // class this check exists for) is still caught: a non-number 2nd arg
-    // won't equal 300 and the assertion fails with a useful diff.
-    const ttl = typeof cacheDuration === "number" ? cacheDuration : 300;
+    // as a parameter default, but stubbing bypasses that. Coerce ONLY
+    // undefined → 300 so INVOCATIONS' `cacheDurationSeconds: TTL.default`
+    // lines up for v0.1 one-arg callers.
+    //
+    // Refuse anything else (object, string, etc.). The dangerous refactor
+    // bug — passing `options` as the 2nd positional arg — is exactly the
+    // "non-undefined, non-number" case. Throwing here makes it impossible
+    // to mask: the baseline / regression run fails with a pointed message
+    // instead of silently defaulting to 300 and looking like everything's
+    // fine.
+    if (cacheDuration !== undefined && typeof cacheDuration !== "number") {
+      throw new Error(
+        `fetchWithToolConfig received non-number cacheDuration (${typeof cacheDuration}); ` +
+          `did you pass options as the second positional arg? Use ` +
+          `fetchWithToolConfig(url, DEFAULT_CACHE_TTL_SECONDS, options).`,
+      );
+    }
+    const ttl = (cacheDuration as number | undefined) ?? 300;
     lastRequest.value = { method: "GET", url, cacheDuration: ttl };
     return loadFixture();
   };
@@ -3958,13 +3970,20 @@ describe("service markdown snapshots", () => {
       const raw = await fs.readFile(path.join(fixturesDir, `${key}.json`), "utf-8");
       return JSON.parse(raw);
     };
-    proto.fetchWithToolConfig = async function (url: string, cacheDuration?: number) {
+    proto.fetchWithToolConfig = async function (url: string, cacheDuration?: unknown) {
       // See scripts/snapshot-baseline.ts for the rationale — v0.1 default-TTL
-      // methods call this with one arg; coerce undefined → 300 so the
-      // INVOCATIONS expected TTLs line up. A refactor that passes `options`
-      // as the 2nd positional arg surfaces as a non-number cacheDuration
-      // and fails the assertion below.
-      const ttl = typeof cacheDuration === "number" ? cacheDuration : 300;
+      // methods call this with one arg; coerce ONLY undefined → 300 so the
+      // INVOCATIONS expected TTLs line up. Refuse non-undefined non-numbers
+      // (the `options`-as-2nd-arg bug) so it fails loudly here instead of
+      // being silently rounded to 300.
+      if (cacheDuration !== undefined && typeof cacheDuration !== "number") {
+        throw new Error(
+          `fetchWithToolConfig received non-number cacheDuration (${typeof cacheDuration}); ` +
+            `did you pass options as the second positional arg? Use ` +
+            `fetchWithToolConfig(url, DEFAULT_CACHE_TTL_SECONDS, options).`,
+        );
+      }
+      const ttl = (cacheDuration as number | undefined) ?? 300;
       lastRequest = { method: "GET", url, cacheDuration: ttl };
       return loadFixture();
     };
