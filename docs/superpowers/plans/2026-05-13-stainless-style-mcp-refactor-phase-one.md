@@ -2293,7 +2293,20 @@ function resolveRaw(methodPath: string): (args: unknown, options: { signal: Abor
  *  AND the spec-required ExternalCopy result transfer. Returning a plain JS
  *  value from an ivm.Callback works for primitives but is fragile for complex
  *  objects — wrapping in ExternalCopy is the explicit transfer mode per spec
- *  §2.2 step 3 ("The return value is wrapped in ivm.ExternalCopy"). */
+ *  §2.2 step 3 ("The return value is wrapped in ivm.ExternalCopy").
+ *
+ *  Three timeout layers cooperate here:
+ *  1. AbortController fires at ABORT_MS — cancels the in-flight TCP/TLS request
+ *     if axios honors the signal.
+ *  2. axios `timeout` option fires at AXIOS_MS — belt-and-braces for the
+ *     response-read phase.
+ *  3. A host-side Promise.race against a setTimeout-backed rejection — guarantees
+ *     this Callback resolves/rejects within ~ABORT_MS regardless of whether
+ *     axios actually observes (1) or (2). Without (3), a request-forwarding
+ *     adapter that silently ignored AbortSignal could leave the call hanging
+ *     until the outer 30 s isolate deadline and surface as the WRONG timeout
+ *     class (whole-script timeout instead of per-call).
+ */
 function makeTimeoutWrapped(
   ivm: typeof import("isolated-vm"),
   rawFn: (args: unknown, options: { signal: AbortSignal; timeout: number }) => Promise<unknown>,
@@ -2301,12 +2314,28 @@ function makeTimeoutWrapped(
 ) {
   return async (args: unknown) => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), ABORT_MS);
+    let timer: NodeJS.Timeout | undefined;
+    const abortPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error(`DeBank call timed out after 5s: ${agentFacingName}`));
+      }, ABORT_MS);
+      timer.unref?.();
+    });
     try {
-      const result = await rawFn(args, { signal: controller.signal, timeout: AXIOS_MS });
+      const result = await Promise.race([
+        rawFn(args, { signal: controller.signal, timeout: AXIOS_MS }),
+        abortPromise,
+      ]);
       return new ivm.ExternalCopy(result);
     } catch (err) {
       const e = err as Error & { code?: string };
+      // Recognize the three timeout paths and collapse them into the canonical
+      // message. The abortPromise rejection above already uses the canonical
+      // message; we don't re-wrap it.
+      if (typeof e.message === "string" && e.message.startsWith("DeBank call timed out after 5s")) {
+        throw err;
+      }
       const isAbort = controller.signal.aborted;
       const isAxiosTimeout = e.code === "ECONNABORTED" || e.code === "ETIMEDOUT";
       if (isAbort || isAxiosTimeout) {
@@ -2314,7 +2343,7 @@ function makeTimeoutWrapped(
       }
       throw err;
     } finally {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
     }
   };
 }
@@ -3585,10 +3614,30 @@ describe("lazy isolated-vm", () => {
     expect(inner.error).toMatch(/isolated-vm native module failed to load/);
     expect(inner.error).toMatch(/pnpm rebuild isolated-vm/);
     } finally {
-      // Always reap the child — a failed assertion or timeout above would
-      // otherwise leave a stdio MCP server running, hanging the test runner
-      // on open handles.
+      // Always reap the child AND wait for it to actually exit — `child.kill()`
+      // sends SIGTERM but returns immediately, leaving stdio handles alive
+      // briefly. A subsequent test (or this test's vitest hook teardown) can
+      // race against those handles and flake. Close stdin first to signal
+      // shutdown the cooperative way, then SIGTERM, then await 'exit' (with
+      // a SIGKILL fallback if it doesn't exit within 2 s).
+      try { child.stdin.end(); } catch { /* already closed */ }
+      const exited = new Promise<void>((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) return resolve();
+        child.once("exit", () => resolve());
+        child.once("close", () => resolve());
+      });
       if (!child.killed) child.kill();
+      await Promise.race([
+        exited,
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            if (!child.killed || (child.exitCode === null && child.signalCode === null)) {
+              child.kill("SIGKILL");
+            }
+            resolve();
+          }, 2_000).unref?.(),
+        ),
+      ]);
     }
   }, 30_000);
 });
