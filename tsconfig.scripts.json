@@ -1,0 +1,15 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"rootDir": ".",
+		"baseUrl": ".",
+		"paths": {
+			"js-tiktoken/lite": ["node_modules/js-tiktoken/dist/lite.js"],
+			"js-tiktoken/ranks/cl100k_base": [
+				"node_modules/js-tiktoken/dist/ranks/cl100k_base.js"
+			],
+			"*": ["node_modules/*", "src/types/*"]
+		}
+	},
+	"include": ["scripts/**/*.ts", "tests/**/*.ts", "src/**/*.ts"]
+}
