@@ -17,8 +17,6 @@ const PARAMS = z.object({
 		),
 });
 
-const MAX_TOTAL_CHARS = 100_000;
-
 const STOPWORDS = new Set([
 	"a",
 	"an",
@@ -147,10 +145,8 @@ export const searchDocsTool = {
 			};
 		}
 		const verbose = args.detail === "verbose";
-		let total = 0;
-		const results: unknown[] = [];
-		for (const h of hits) {
-			const entry: Record<string, unknown> = verbose
+		const results = hits.map((h) =>
+			verbose
 				? { ...h }
 				: {
 						kind: h.kind,
@@ -160,12 +156,8 @@ export const searchDocsTool = {
 						params: h.params,
 						exampleCall: h.exampleCall,
 						title: h.title,
-					};
-			const str = JSON.stringify(entry);
-			if (total + str.length > MAX_TOTAL_CHARS) break;
-			total += str.length;
-			results.push(entry);
-		}
+					},
+		);
 		return {
 			content: [{ type: "text" as const, text: JSON.stringify({ results }) }],
 			isError: false,
