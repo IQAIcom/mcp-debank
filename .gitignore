@@ -2,3 +2,6 @@ node_modules
 dist
 .vscode
 .env
+
+# Research scratch
+coingecko-tools-analysis.json
