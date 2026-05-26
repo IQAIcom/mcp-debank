@@ -10,22 +10,7 @@ import {
 	resolveChains,
 	resolveWrappedToken,
 } from "../../lib/entity-resolver.js";
-import {
-	chainService,
-	protocolService,
-	tokenService,
-	transactionService,
-	userService,
-} from "../../services/index.js";
 import { TOOL_METADATA } from "../legacy/tool-metadata.js";
-
-const SERVICE_MAP: Record<string, Record<string, unknown>> = {
-	chainService: chainService as unknown as Record<string, unknown>,
-	protocolService: protocolService as unknown as Record<string, unknown>,
-	tokenService: tokenService as unknown as Record<string, unknown>,
-	transactionService: transactionService as unknown as Record<string, unknown>,
-	userService: userService as unknown as Record<string, unknown>,
-};
 
 const ABORT_MS = 5_000;
 const AXIOS_MS = 6_000;
@@ -44,26 +29,6 @@ function envelopeFail(ivm: typeof IVM, error: string): unknown {
 	return new ivm.ExternalCopy({ ok: false, error } satisfies Envelope).copyInto(
 		{ release: true },
 	);
-}
-
-function resolveRaw(
-	methodPath: string,
-): (
-	args: unknown,
-	options: { signal: AbortSignal; timeout: number },
-) => Promise<unknown> {
-	const [singletonName, methodName] = methodPath.split(".");
-	if (!singletonName || !methodName)
-		throw new Error(`Invalid sandboxMethodPath: ${methodPath}`);
-	const singleton = SERVICE_MAP[singletonName];
-	if (!singleton)
-		throw new Error(`Unknown service singleton: ${singletonName}`);
-	const fn = singleton[methodName] as
-		| ((args: unknown, options: unknown) => Promise<unknown>)
-		| undefined;
-	if (typeof fn !== "function")
-		throw new Error(`Method ${methodName} not found on ${singletonName}`);
-	return (args, options) => fn.call(singleton, args, options);
 }
 
 function parseQualified(qualified: string): [string, string] {
@@ -237,9 +202,13 @@ export async function installDebankClient(ctx: IVM.Context): Promise<void> {
 
 	// 31 service calls
 	for (const m of TOOL_METADATA) {
+		const rawFn = (await m.sandboxImpl()) as (
+			args: unknown,
+			options: { signal: AbortSignal; timeout: number },
+		) => Promise<unknown>;
 		await installServiceCall(ctx, ivm, {
 			qualified: m.qualified,
-			rawFn: resolveRaw(m.sandboxMethodPath),
+			rawFn,
 		});
 	}
 

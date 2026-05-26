@@ -12,43 +12,7 @@ import {
 	resolveChain,
 	resolveEntities,
 } from "../../lib/entity-resolver.js";
-import {
-	chainService,
-	protocolService,
-	tokenService,
-	transactionService,
-	userService,
-} from "../../services/index.js";
 import { TOOL_METADATA, type ToolMetadata } from "./tool-metadata.js";
-
-const SERVICE_MAP: Record<string, unknown> = {
-	chainService,
-	protocolService,
-	tokenService,
-	transactionService,
-	userService,
-};
-
-function resolveMethod(
-	legacyMethodPath: string,
-): (args: Record<string, unknown>) => Promise<string> {
-	const [singletonName, methodName] = legacyMethodPath.split(".");
-	if (!singletonName || !methodName) {
-		throw new Error(`Invalid legacyMethodPath: ${legacyMethodPath}`);
-	}
-	const singleton = SERVICE_MAP[singletonName] as
-		| Record<string, unknown>
-		| undefined;
-	if (!singleton)
-		throw new Error(`Unknown service singleton: ${singletonName}`);
-	const method = singleton[methodName] as
-		| ((args: Record<string, unknown>) => Promise<string>)
-		| undefined;
-	if (typeof method !== "function") {
-		throw new Error(`Method ${methodName} not found on ${singletonName}`);
-	}
-	return method.bind(singleton);
-}
 
 /** Tool surface registered with FastMCP when --legacy-tools is set. */
 export const legacyTools = TOOL_METADATA.map((m: ToolMetadata) => ({
@@ -73,7 +37,7 @@ export const legacyTools = TOOL_METADATA.map((m: ToolMetadata) => ({
 			}
 		}
 		await resolveEntities(args);
-		const method = resolveMethod(m.legacyMethodPath);
-		return method(args);
+		const method = await m.legacyImpl();
+		return method(args) as Promise<string>;
 	},
 }));
