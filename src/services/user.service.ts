@@ -4,6 +4,7 @@
  */
 
 import { createChildLogger } from "../lib/utils/index.js";
+import { toMarkdown } from "../lib/utils/markdown-formatter.js";
 import type {
 	NetCurvePoint,
 	NFTAuthorization,
@@ -52,7 +53,7 @@ export class UserService extends BaseService {
 	async getUserUsedChainList(args: { id: string }): Promise<string> {
 		const data = await this.getUserUsedChainListRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Chains Used by ${args.id}`,
 			});
 		} catch (error) {
@@ -87,7 +88,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserChainBalanceRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Balance on ${args.chain_id}`,
 				currencyFields: ["usd_value"],
 			});
@@ -123,7 +124,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserProtocolRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: "Protocol Position",
 				currencyFields: ["usd_value"],
 			});
@@ -159,7 +160,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserComplexProtocolListRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Complex Protocol Positions on ${args.chain_id}`,
 				currencyFields: ["usd_value"],
 			});
@@ -199,7 +200,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserAllComplexProtocolListRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: "All Complex Protocol Positions",
 				currencyFields: ["usd_value"],
 			});
@@ -239,7 +240,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserAllSimpleProtocolListRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: "Simple Protocol Positions",
 				currencyFields: ["usd_value"],
 			});
@@ -276,7 +277,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserTokenBalanceRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Token Balance: ${args.token_id}`,
 				currencyFields: ["price", "usd_value"],
 				numberFields: ["amount"],
@@ -331,7 +332,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserTokenListRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Token Holdings on ${args.chain_id}`,
 				currencyFields: ["price", "usd_value"],
 				numberFields: ["amount"],
@@ -383,7 +384,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserAllTokenListRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: "All Token Holdings",
 				currencyFields: ["price", "usd_value"],
 				numberFields: ["amount"],
@@ -433,7 +434,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserNftListRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `NFT Collection on ${args.chain_id}`,
 				numberFields: ["amount"],
 			});
@@ -482,7 +483,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserAllNftListRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: "All NFT Holdings",
 				numberFields: ["amount"],
 			});
@@ -541,7 +542,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserHistoryListRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Transaction History on ${args.chain_id}`,
 			});
 		} catch (error) {
@@ -596,7 +597,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserAllHistoryListRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: "Complete Transaction History",
 			});
 		} catch (error) {
@@ -628,7 +629,7 @@ export class UserService extends BaseService {
 	async getUserTokenAuthorizedList(args: { id: string }): Promise<string> {
 		const data = await this.getUserTokenAuthorizedListRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: "Token Authorizations",
 			});
 		} catch (error) {
@@ -660,7 +661,7 @@ export class UserService extends BaseService {
 	async getUserNftAuthorizedList(args: { id: string }): Promise<string> {
 		const data = await this.getUserNftAuthorizedListRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: "NFT Authorizations",
 			});
 		} catch (error) {
@@ -692,7 +693,7 @@ export class UserService extends BaseService {
 	async getUserTotalBalance(args: { id: string }): Promise<string> {
 		const data = await this.getUserTotalBalanceRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: "Total Portfolio Balance",
 				currencyFields: ["total_usd_value"],
 			});
@@ -728,7 +729,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserChainNetCurveRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Portfolio Value Over Time (${args.chain_id})`,
 				currencyFields: ["usd_value"],
 			});
@@ -765,7 +766,7 @@ export class UserService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getUserTotalNetCurveRaw(args);
 		try {
-			return await this.formatResponse(data.usd_value_list, {
+			return toMarkdown(data.usd_value_list, {
 				title: "Total Portfolio Value Over Time",
 				currencyFields: ["usd_value"],
 			});

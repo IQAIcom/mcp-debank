@@ -6,13 +6,12 @@ import type * as ToolMetadata from "./tool-metadata.js";
 
 vi.mock("../../services/index.js", () => ({
 	chainService: {
-		setQuery: vi.fn(),
 		getSupportedChainList: vi.fn(async () => "# chains"),
 	},
-	protocolService: { setQuery: vi.fn() },
-	tokenService: { setQuery: vi.fn() },
-	transactionService: { setQuery: vi.fn() },
-	userService: { setQuery: vi.fn() },
+	protocolService: {},
+	tokenService: {},
+	transactionService: {},
+	userService: {},
 }));
 
 vi.mock("../../lib/entity-resolver.js", async (importOriginal) => ({
@@ -40,32 +39,8 @@ describe("tool-handlers.legacyTools", () => {
 			(t) => t.name === "debank_get_supported_chain_list",
 		);
 		expect(tool).toBeDefined();
-		const result = await tool?.execute({ _userQuery: "test" });
+		const result = await tool?.execute({});
 		expect(result).toBe("# chains");
-	});
-
-	it("calls without _userQuery clear singleton state from a prior call (no leak)", async () => {
-		const servicesMod = await import("../../services/index.js");
-		const setQuerySpy = vi.spyOn(servicesMod.chainService, "setQuery");
-		const getList = vi
-			.spyOn(servicesMod.chainService, "getSupportedChainList")
-			.mockResolvedValue("# x");
-		setQuerySpy.mockClear();
-		getList.mockClear();
-
-		const tool = legacyTools.find(
-			(t) => t.name === "debank_get_supported_chain_list",
-		);
-		expect(tool).toBeDefined();
-
-		// 1st call with a query — sets currentQuery on each service
-		await tool?.execute({ _userQuery: "alice" });
-		// 2nd call WITHOUT a query — must clear, not leak "alice"
-		await tool?.execute({});
-
-		// Last setQuery call should be the clear ("")
-		expect(setQuerySpy).toHaveBeenLastCalledWith("");
-		expect(getList).toHaveBeenCalledTimes(2);
 	});
 
 	it("debank_get_chain resolves args.id as a chain name (v0.1 quirk)", async () => {

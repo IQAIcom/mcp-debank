@@ -4,6 +4,7 @@
  */
 
 import { createChildLogger } from "../lib/utils/index.js";
+import { toMarkdown } from "../lib/utils/markdown-formatter.js";
 import type { TokenHistoricalPrice, TokenHolder, TokenInfo } from "../types.js";
 import { BaseService, type RequestOptions } from "./base.service.js";
 
@@ -45,7 +46,7 @@ export class TokenService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getTokenInformationRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Token Information: ${data.name || args.id}`,
 				currencyFields: ["price"],
 				numberFields: ["decimals"],
@@ -82,7 +83,7 @@ export class TokenService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getListTokenInformationRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Token List (${data.length} tokens)`,
 				currencyFields: ["price"],
 				numberFields: ["decimals"],
@@ -133,7 +134,7 @@ export class TokenService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getTopHoldersOfTokenRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Top Holders of Token: ${args.id}`,
 				currencyFields: ["usd_value"],
 				numberFields: ["amount"],
@@ -171,7 +172,7 @@ export class TokenService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getTokenHistoryPriceRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Historical Price for ${args.id} on ${args.date_at}`,
 				currencyFields: ["price"],
 			});

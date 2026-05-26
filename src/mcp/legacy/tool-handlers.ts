@@ -57,7 +57,6 @@ export const legacyTools = TOOL_METADATA.map((m: ToolMetadata) => ({
 	parameters: z.object({
 		...((m.parameters as unknown as { shape?: Record<string, z.ZodTypeAny> })
 			.shape ?? {}),
-		_userQuery: z.string().optional(),
 	}),
 	execute: async (args: Record<string, unknown>) => {
 		/**
@@ -74,18 +73,6 @@ export const legacyTools = TOOL_METADATA.map((m: ToolMetadata) => ({
 			}
 		}
 		await resolveEntities(args);
-		/**
-		 * Always set the query, including the empty-string fallback. Services are
-		 * singletons — a previous call's _userQuery would leak into this one's JQ
-		 * filtering otherwise. formatResponse gates on truthy currentQuery so ""
-		 * correctly disables filtering for this call.
-		 */
-		const q = (args._userQuery as string | undefined) ?? "";
-		chainService.setQuery(q);
-		protocolService.setQuery(q);
-		tokenService.setQuery(q);
-		transactionService.setQuery(q);
-		userService.setQuery(q);
 		const method = resolveMethod(m.legacyMethodPath);
 		return method(args);
 	},

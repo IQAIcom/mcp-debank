@@ -9,15 +9,7 @@
 // post-refactor regression test (Task 27) asserts the new code reproduces
 // them byte-identical.
 //
-// IMPORTANT — must use tsconfig.scripts.json, NOT the default tsconfig.json:
-//
-//   pnpm exec tsx --tsconfig tsconfig.scripts.json scripts/snapshot-baseline.ts
-//
-// tsx v4 has a resolution bug where it finds the root CJS shim `lite.js` in
-// js-tiktoken (type:module package) before the package exports map, causing
-// "does not provide an export named 'Tiktoken'". tsconfig.scripts.json has a
-// paths entry that redirects js-tiktoken/lite → dist/lite.js (the real ESM
-// file). vitest is unaffected because it uses Vite's resolver, not tsx's.
+// Invocation:  pnpm exec tsx scripts/snapshot-baseline.ts
 
 // IMPORTANT: env setup MUST happen before any `src/` import. env.ts at
 // module load fails the Zod parse unless DEBANK_API_KEY or both

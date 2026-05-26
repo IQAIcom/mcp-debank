@@ -4,8 +4,8 @@ import { vi } from "vitest";
 /**
  * 1. Neutralize dotenv BEFORE env.ts is imported. Default dotenv.config()
  *    populates keys that are undefined from a .env file — so a `delete`
- *    without this mock would silently re-introduce IQ_GATEWAY_*,
- *    GOOGLE_GENERATIVE_AI_API_KEY, etc. from a developer's local .env.
+ *    without this mock would silently re-introduce IQ_GATEWAY_* from a
+ *    developer's local .env.
  */
 vi.mock("dotenv", () => ({ config: () => ({ parsed: {} }) }));
 
@@ -19,5 +19,3 @@ vi.mock("dotenv", () => ({ config: () => ({ parsed: {} }) }));
 process.env.DEBANK_API_KEY = "test-key";
 delete process.env.IQ_GATEWAY_URL;
 delete process.env.IQ_GATEWAY_KEY;
-delete process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-delete process.env.OPENROUTER_API_KEY;

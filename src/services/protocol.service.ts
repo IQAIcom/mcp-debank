@@ -1,5 +1,6 @@
 import { config } from "../config.js";
 import { createChildLogger } from "../lib/utils/index.js";
+import { toMarkdown } from "../lib/utils/markdown-formatter.js";
 import type { PoolInfo, ProtocolHolder, ProtocolInfo } from "../types.js";
 import { BaseService, type RequestOptions } from "./base.service.js";
 
@@ -35,7 +36,7 @@ export class ProtocolService extends BaseService {
 	async getProtocolInformation(args: { id: string }): Promise<string> {
 		const data = await this.getProtocolInformationRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Protocol Information: ${data.name || args.id}`,
 				currencyFields: ["tvl"],
 			});
@@ -74,7 +75,7 @@ export class ProtocolService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getAllProtocolsOfSupportedChainsRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: args.chain_ids
 					? `Protocols on Chains: ${args.chain_ids}`
 					: "All Supported Protocols",
@@ -123,7 +124,7 @@ export class ProtocolService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getTopHoldersOfProtocolRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Top Holders of Protocol: ${args.id}`,
 				currencyFields: ["usd_value"],
 			});
@@ -162,7 +163,7 @@ export class ProtocolService extends BaseService {
 	}): Promise<string> {
 		const data = await this.getPoolInformationRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Pool Information: ${data.name || args.id}`,
 				currencyFields: ["tvl"],
 			});

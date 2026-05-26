@@ -5,6 +5,7 @@
 
 import { config } from "../config.js";
 import { createChildLogger } from "../lib/utils/index.js";
+import { toMarkdown } from "../lib/utils/markdown-formatter.js";
 import type { PreExecResult, TransactionExplanation } from "../types.js";
 import { BaseService, type RequestOptions } from "./base.service.js";
 
@@ -76,7 +77,7 @@ export class TransactionService extends BaseService {
 	}): Promise<string> {
 		const data = await this.preExecTransactionRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: "Transaction Simulation Result",
 			});
 		} catch (error) {
@@ -121,7 +122,7 @@ export class TransactionService extends BaseService {
 	async explainTransaction(args: { tx: string }): Promise<string> {
 		const data = await this.explainTransactionRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: "Transaction Explanation",
 			});
 		} catch (error) {

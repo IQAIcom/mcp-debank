@@ -3,22 +3,12 @@
  * Provides common functionality for all DeBank services
  */
 
-import type { LanguageModel } from "ai";
 import axios from "axios";
-import { Tiktoken } from "js-tiktoken/lite";
-import cl100k_base from "js-tiktoken/ranks/cl100k_base";
 import { config } from "../config.js";
 import { env } from "../env.js";
-import { LLMDataFilter } from "../lib/utils/data-filter.js";
-import { createChildLogger, extractErrorMessage } from "../lib/utils/index.js";
-import { toMarkdown } from "../lib/utils/markdown-formatter.js";
+import { extractErrorMessage } from "../lib/utils/index.js";
 
 export type RequestOptions = { signal?: AbortSignal; timeout?: number };
-
-const logger = createChildLogger("DeBank MCP Base Service");
-
-// Initialize tiktoken encoder for token counting
-const encoder = new Tiktoken(cl100k_base);
 
 /**
  * Base Service for DeBank API
@@ -26,26 +16,6 @@ const encoder = new Tiktoken(cl100k_base);
  */
 export abstract class BaseService {
 	protected baseUrl = config.baseUrl;
-	protected aiModel?: LanguageModel;
-	protected dataFilter?: LLMDataFilter;
-	protected currentQuery?: string;
-
-	/**
-	 * Set the AI model for data filtering
-	 * Call this method to enable automatic filtering of large responses
-	 */
-	setAIModel(model: LanguageModel) {
-		this.aiModel = model;
-		this.dataFilter = new LLMDataFilter({ model });
-	}
-
-	/**
-	 * Set the current user query for context-aware filtering
-	 * This should be called before making service requests
-	 */
-	setQuery(query: string) {
-		this.currentQuery = query;
-	}
 
 	protected readonly DEFAULT_CACHE_TTL_SECONDS = config.debankDefaultLifeTime;
 
@@ -211,62 +181,5 @@ export abstract class BaseService {
 		}
 
 		return Math.floor(parsed / 1000);
-	}
-
-	/**
-	 * Format response for LLM consumption
-	 * Returns MCP-compliant response with content array
-	 * Automatically filters large responses if AI model is configured
-	 * Uses currentQuery set via setQuery() for filtering context
-	 */
-	protected async formatResponse(
-		data: unknown,
-		options?: {
-			title?: string;
-			currencyFields?: string[];
-			numberFields?: string[];
-		},
-	): Promise<string> {
-		let markdownOutput = toMarkdown(data, options);
-
-		const tokenLength = encoder.encode(markdownOutput).length;
-		logger.info(`Response token length: ${tokenLength}`);
-		logger.info(
-			`Response token need filtering: ${tokenLength > config.maxTokens ? "Yes" : "No"}`,
-		);
-		logger.info(
-			`User query for filtering: ${this.currentQuery ? "Yes" : "No"}`,
-		);
-		logger.info(`Data filter configured: ${this.dataFilter ? "Yes" : "No"}`);
-
-		if (
-			tokenLength > config.maxTokens &&
-			this.dataFilter &&
-			this.currentQuery
-		) {
-			try {
-				const jsonData = JSON.stringify(data);
-				const filteredJson = await this.dataFilter.filter(
-					jsonData,
-					this.currentQuery,
-				);
-
-				markdownOutput = toMarkdown(JSON.parse(filteredJson), {
-					title: options?.title,
-					currencyFields: options?.currencyFields,
-					numberFields: options?.numberFields,
-				});
-
-				const filteredTokenLength = encoder.encode(markdownOutput).length;
-				logger.info(`New Response token length: ${filteredTokenLength}`);
-
-				return markdownOutput;
-			} catch (error) {
-				console.error("Error filtering response:", error);
-				return markdownOutput;
-			}
-		}
-
-		return markdownOutput;
 	}
 }

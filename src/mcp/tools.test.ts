@@ -50,71 +50,21 @@ describe("debank_resolve", () => {
 });
 
 describe("debank_get_supported_chain_list (default surface)", () => {
-	it("accepts _userQuery and pipes setQuery into ALL services before the call", async () => {
+	it("returns chainService.getSupportedChainList markdown verbatim", async () => {
 		const servicesMod = await import("../services/index.js");
-		const setQueryChain = vi.spyOn(servicesMod.chainService, "setQuery");
-		const setQueryProtocol = vi.spyOn(servicesMod.protocolService, "setQuery");
-		const setQueryToken = vi.spyOn(servicesMod.tokenService, "setQuery");
-		const setQueryTransaction = vi.spyOn(
-			servicesMod.transactionService,
-			"setQuery",
-		);
-		const setQueryUser = vi.spyOn(servicesMod.userService, "setQuery");
 		const getList = vi
 			.spyOn(servicesMod.chainService, "getSupportedChainList")
 			.mockResolvedValue("# Supported Chains\n\n* eth\n* bsc");
 
 		const { supportedChainListTool } = await import("./tools.js");
-		const res = await supportedChainListTool.execute({
-			_userQuery: "my query",
-		});
-
-		expect(setQueryChain).toHaveBeenCalledWith("my query");
-		expect(setQueryProtocol).toHaveBeenCalledWith("my query");
-		expect(setQueryToken).toHaveBeenCalledWith("my query");
-		expect(setQueryTransaction).toHaveBeenCalledWith("my query");
-		expect(setQueryUser).toHaveBeenCalledWith("my query");
+		const res = await supportedChainListTool.execute({});
 
 		expect(getList).toHaveBeenCalledTimes(1);
 		expect(res.isError).toBe(false);
 		expect(res.content[0]?.text).toBe("# Supported Chains\n\n* eth\n* bsc");
 	});
 
-	it("without _userQuery, setQuery is still called with empty string to clear prior state", async () => {
-		const servicesMod = await import("../services/index.js");
-		const setQueryChain = vi
-			.spyOn(servicesMod.chainService, "setQuery")
-			.mockClear();
-		const setQueryProtocol = vi
-			.spyOn(servicesMod.protocolService, "setQuery")
-			.mockClear();
-		const setQueryToken = vi
-			.spyOn(servicesMod.tokenService, "setQuery")
-			.mockClear();
-		const setQueryTransaction = vi
-			.spyOn(servicesMod.transactionService, "setQuery")
-			.mockClear();
-		const setQueryUser = vi
-			.spyOn(servicesMod.userService, "setQuery")
-			.mockClear();
-		vi.spyOn(
-			servicesMod.chainService,
-			"getSupportedChainList",
-		).mockResolvedValue("# Chains");
-
-		const { supportedChainListTool } = await import("./tools.js");
-		const res = await supportedChainListTool.execute({});
-
-		// Empty string clears any leaked query from a prior call (services are singletons).
-		expect(setQueryChain).toHaveBeenCalledWith("");
-		expect(setQueryProtocol).toHaveBeenCalledWith("");
-		expect(setQueryToken).toHaveBeenCalledWith("");
-		expect(setQueryTransaction).toHaveBeenCalledWith("");
-		expect(setQueryUser).toHaveBeenCalledWith("");
-		expect(res.content[0]?.text).toBe("# Chains");
-	});
-
-	it("description and schema match v0.1 verbatim", async () => {
+	it("description matches v0.1 verbatim and parameters schema is empty", async () => {
 		const { supportedChainListTool } = await import("./tools.js");
 		expect(supportedChainListTool.description).toBe(
 			"Retrieve a comprehensive list of all blockchain chains supported by the DeBank API. Returns information about each chain including their IDs, names, logo URLs, native token IDs, wrapped token IDs, and pre-execution support status. Use this to discover available chains before calling other chain-specific endpoints.",
@@ -124,6 +74,6 @@ describe("debank_get_supported_chain_list (default surface)", () => {
 				shape?: Record<string, unknown>;
 			}
 		).shape;
-		expect(Object.keys(shape ?? {})).toEqual(["_userQuery"]);
+		expect(Object.keys(shape ?? {})).toEqual([]);
 	});
 });

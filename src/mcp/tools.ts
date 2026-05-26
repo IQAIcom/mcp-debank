@@ -4,13 +4,7 @@
 
 import { z } from "zod";
 import { resolveChain } from "../lib/entity-resolver.js";
-import {
-	chainService,
-	protocolService,
-	tokenService,
-	transactionService,
-	userService,
-} from "../services/index.js";
+import { chainService } from "../services/index.js";
 
 const RESOLVE_PARAMS = z.object({
 	name: z
@@ -52,9 +46,7 @@ export const resolveTool = {
 	},
 };
 
-const CHAIN_LIST_PARAMS = z.object({
-	_userQuery: z.string().optional(),
-});
+const CHAIN_LIST_PARAMS = z.object({});
 
 export const supportedChainListTool = {
 	name: "debank_get_supported_chain_list",
@@ -62,13 +54,7 @@ export const supportedChainListTool = {
 		"Retrieve a comprehensive list of all blockchain chains supported by the DeBank API. Returns information about each chain including their IDs, names, logo URLs, native token IDs, wrapped token IDs, and pre-execution support status. Use this to discover available chains before calling other chain-specific endpoints.",
 	parameters: CHAIN_LIST_PARAMS,
 	annotations: { readOnlyHint: true },
-	execute: async (args: z.infer<typeof CHAIN_LIST_PARAMS>) => {
-		const q = args._userQuery ?? "";
-		chainService.setQuery(q);
-		protocolService.setQuery(q);
-		tokenService.setQuery(q);
-		transactionService.setQuery(q);
-		userService.setQuery(q);
+	execute: async (_args: z.infer<typeof CHAIN_LIST_PARAMS>) => {
 		const md = await chainService.getSupportedChainList();
 		return { content: [{ type: "text" as const, text: md }], isError: false };
 	},

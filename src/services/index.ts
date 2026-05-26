@@ -3,8 +3,6 @@
  * Exports singleton instances of all domain-specific services
  */
 
-import { env } from "../env.js";
-import { openrouter } from "../lib/integrations/openrouter.js";
 import { ChainService } from "./chain.service.js";
 import { ProtocolService } from "./protocol.service.js";
 import { TokenService } from "./token.service.js";
@@ -24,11 +22,3 @@ export const protocolService = new ProtocolService();
 export const tokenService = new TokenService();
 export const transactionService = new TransactionService();
 export const userService = new UserService();
-
-// Initialize AI model for data filtering
-const aiModel = openrouter(env.LLM_MODEL);
-chainService.setAIModel(aiModel);
-protocolService.setAIModel(aiModel);
-tokenService.setAIModel(aiModel);
-transactionService.setAIModel(aiModel);
-userService.setAIModel(aiModel);

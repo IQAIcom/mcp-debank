@@ -1,5 +1,6 @@
 import { config } from "../config.js";
 import { createChildLogger } from "../lib/utils/index.js";
+import { toMarkdown } from "../lib/utils/markdown-formatter.js";
 import type { ChainInfo, GasMarket } from "../types.js";
 import { BaseService, type RequestOptions } from "./base.service.js";
 
@@ -35,7 +36,7 @@ export class ChainService extends BaseService {
 	async getSupportedChainList(): Promise<string> {
 		const data = await this.getSupportedChainListRaw();
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: "Supported Chains",
 			});
 		} catch (error) {
@@ -64,7 +65,7 @@ export class ChainService extends BaseService {
 	async getChain(args: { id: string }): Promise<string> {
 		const data = await this.getChainRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Chain Information: ${data.name}`,
 			});
 		} catch (error) {
@@ -96,7 +97,7 @@ export class ChainService extends BaseService {
 	async getGasPrices(args: { chain_id: string }): Promise<string> {
 		const data = await this.getGasPricesRaw(args);
 		try {
-			return await this.formatResponse(data, {
+			return toMarkdown(data, {
 				title: `Gas Prices for Chain: ${args.chain_id}`,
 				numberFields: ["price", "front_tx_count", "estimated_seconds"],
 			});
