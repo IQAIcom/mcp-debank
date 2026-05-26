@@ -4,11 +4,46 @@ import { cachedContentName } from "./cache/cache-manager.js";
 import { createResolver } from "./resolvers/base-resolver.js";
 import { createChildLogger } from "./utils/index.js";
 import { sanitizeChainId } from "./utils/sanitizers.js";
-import { needsResolution } from "./utils/validators.js";
 
 const logger = createChildLogger("DeBank Entity Resolver");
 
-export { needsResolution };
+const WRAPPED_TOKEN_KEYWORDS = [
+	"weth",
+	"wbnb",
+	"wmatic",
+	"wavax",
+	"wrapped",
+	"native",
+] as const;
+
+/**
+ * True when `str` looks like a chain NAME (e.g. "Ethereum", "Binance Smart
+ * Chain") rather than a DeBank chain ID (e.g. "eth"). Heuristic: presence of
+ * uppercase letters or whitespace.
+ *
+ * Exported because tool-handlers.ts uses this to decide whether to pre-resolve
+ * `args.id` as a chain name for `debank_get_chain`.
+ */
+export function looksLikeChainName(str: string | undefined): boolean {
+	if (!str) return false;
+	return /[A-Z\s]/.test(String(str));
+}
+
+/**
+ * True when `str` is one of the wrapped-token keywords resolveWrappedToken
+ * can resolve to an address. Returns false for 0x-addresses (already an
+ * address; no resolution needed) and for any other string that doesn't
+ * lowercase-contain one of the keywords.
+ *
+ * Private — the keyword set is implementation detail of resolveWrappedToken.
+ */
+function isWrappedTokenKeyword(str: string | undefined): boolean {
+	if (!str) return false;
+	const s = String(str);
+	if (/^0x[a-f0-9]{40}$/i.test(s)) return false;
+	const lower = s.toLowerCase();
+	return WRAPPED_TOKEN_KEYWORDS.some((k) => lower.includes(k));
+}
 
 const chainResolver = createResolver({
 	entityType: "chain",
@@ -57,7 +92,7 @@ export async function resolveChains(
 		const names = commaSeparated.split(",").map((name) => name.trim());
 
 		const resolvedPromises = names.map((name) => {
-			if (!needsResolution(name, "chain")) {
+			if (!looksLikeChainName(name)) {
 				return Promise.resolve(name);
 			}
 			return resolveChain(name);
@@ -86,9 +121,8 @@ export async function resolveChains(
  * resolveWrappedToken is also exposed to Code Mode agents as
  * `debank.resolveWrappedToken(keyword, chainId)`. We must validate the
  * keyword here so unrelated symbols like "USDT" don't silently return the
- * chain's wrapped native address. Delegating to needsResolution(..., "token")
- * keeps the keyword set in lockstep with the legacy auto-resolution path
- * (validators.ts) — no risk of divergence.
+ * chain's wrapped native address. The WRAPPED_TOKEN_KEYWORDS set is
+ * co-located here — isWrappedTokenKeyword is its sole consumer.
  */
 export function resolveWrappedToken(
 	tokenKeyword: string,
@@ -96,7 +130,7 @@ export function resolveWrappedToken(
 ): string | null {
 	if (
 		typeof tokenKeyword !== "string" ||
-		!needsResolution(tokenKeyword, "token")
+		!isWrappedTokenKeyword(tokenKeyword)
 	) {
 		return null;
 	}
@@ -134,7 +168,7 @@ export async function resolveEntities(
 	if (
 		args.chain_id &&
 		typeof args.chain_id === "string" &&
-		needsResolution(args.chain_id, "chain")
+		looksLikeChainName(args.chain_id)
 	) {
 		const resolved = await resolveChain(args.chain_id);
 		if (resolved) {
@@ -145,7 +179,7 @@ export async function resolveEntities(
 	if (
 		args.chain_ids &&
 		typeof args.chain_ids === "string" &&
-		needsResolution(args.chain_ids, "chain")
+		looksLikeChainName(args.chain_ids)
 	) {
 		const resolved = await resolveChains(args.chain_ids);
 		if (resolved) {
@@ -158,7 +192,7 @@ export async function resolveEntities(
 		typeof args.token_id === "string" &&
 		args.chain_id &&
 		typeof args.chain_id === "string" &&
-		needsResolution(args.token_id, "token")
+		isWrappedTokenKeyword(args.token_id)
 	) {
 		const resolved = resolveWrappedToken(args.token_id, args.chain_id);
 		if (resolved) {
@@ -171,7 +205,7 @@ export async function resolveEntities(
 		typeof args.id === "string" &&
 		args.chain_id &&
 		typeof args.chain_id === "string" &&
-		needsResolution(args.id, "token")
+		isWrappedTokenKeyword(args.id)
 	) {
 		const resolved = resolveWrappedToken(args.id, args.chain_id);
 		if (resolved) {

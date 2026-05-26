@@ -8,7 +8,7 @@
 
 import { z } from "zod";
 import {
-	needsResolution,
+	looksLikeChainName,
 	resolveChain,
 	resolveEntities,
 } from "../../lib/entity-resolver.js";
@@ -31,7 +31,7 @@ export const legacyTools = TOOL_METADATA.map((m: ToolMetadata) => ({
 		 */
 		if (m.name === "debank_get_chain") {
 			const id = args.id;
-			if (typeof id === "string" && needsResolution(id, "chain")) {
+			if (typeof id === "string" && looksLikeChainName(id)) {
 				const resolved = await resolveChain(id);
 				if (resolved) args.id = resolved;
 			}

@@ -16,7 +16,7 @@ vi.mock("../../lib/entity-resolver.js", async (importOriginal) => ({
 	...(await importOriginal<typeof EntityResolver>()),
 	resolveEntities: vi.fn(async () => {}),
 	resolveChain: vi.fn(async () => null),
-	needsResolution: vi.fn(() => true),
+	looksLikeChainName: vi.fn(() => true),
 }));
 
 describe("tool-handlers.legacyTools", () => {
