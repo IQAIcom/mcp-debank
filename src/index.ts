@@ -2,6 +2,7 @@
 import { createRequire } from "node:module";
 import { FastMCP } from "fastmcp";
 import { createChildLogger } from "./lib/utils/logger.js";
+import { endpointTools } from "./mcp/endpoints/tools.js";
 import { executeTool } from "./mcp/execute/tool.js";
 import { INSTRUCTIONS } from "./mcp/instructions/instructions.generated.js";
 import { searchDocsTool } from "./mcp/search-docs/tool.js";
@@ -42,6 +43,7 @@ async function main() {
 		executeTool,
 		searchDocsTool,
 		...defaultConvenienceTools,
+		...endpointTools,
 	] as unknown as ReadonlyArray<RegisteredTool>;
 	for (const tool of defaults) server.addTool(tool);
 

@@ -2,6 +2,24 @@
 
 This server exposes two primary tools to agents: `execute` (sandboxed JavaScript against a DeBank client) and `search_docs` (search SDK documentation). Two convenience tools — `debank_resolve` and `debank_get_supported_chain_list` — are also available by default. The 30 hidden legacy tools can be restored with `--legacy-tools`.
 
+## When to use which tool
+
+- **`execute`** — multi-step workflows with loops, joins, conditional logic, or custom projection. The expressive default.
+- **`invoke_endpoint`** — single API call with a jq filter for projection. Lighter-weight than `execute` when you just need a few fields from one endpoint.
+- **`list_endpoints`** + **`get_endpoint_schema`** — discovery. Use when you don't know what's available or what an endpoint's params/response look like.
+
+### `invoke_endpoint` quick reference
+
+```json
+{
+  "name": "debank.user.getUserChainBalance",
+  "params": { "id": "0xWALLET", "chain_id": "eth" },
+  "jq_filter": ".usd_value"
+}
+```
+
+The response is the jq-projected JSON. Use `get_endpoint_schema` first to see the full response shape.
+
 ## Top operations
 
 ### 1. Total portfolio value across all chains

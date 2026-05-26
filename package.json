@@ -44,6 +44,7 @@
 		"isolated-vm": "^6.1.2",
 		"jqts": "^0.0.8",
 		"minisearch": "^7.2.0",
+		"node-jq": "^6.3.1",
 		"winston": "^3.18.3",
 		"zod": "^4.1.11"
 	},

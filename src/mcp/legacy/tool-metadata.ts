@@ -16,6 +16,39 @@ import { z } from "zod";
 // lazyMethod's returned closure runs only when the thunk is invoked,
 // never at module load.
 import type * as Services from "../../services/index.js";
+import {
+	AllProtocolsSchema,
+	GasMarketSchema,
+	GetChainSchema,
+	ListTokenInformationSchema,
+	PoolInformationSchema,
+	PreExecResultSchema,
+	ProtocolInformationSchema,
+	SupportedChainListSchema,
+	TokenHistoryPriceSchema,
+	TokenInformationSchema,
+	TopHoldersOfProtocolSchema,
+	TopHoldersOfTokenSchema,
+	TransactionExplanationSchema,
+	UserAllComplexProtocolListSchema,
+	UserAllHistoryListSchema,
+	UserAllNftListSchema,
+	UserAllSimpleProtocolListSchema,
+	UserAllTokenListSchema,
+	UserChainBalanceSchema,
+	UserChainNetCurveSchema,
+	UserComplexProtocolListSchema,
+	UserHistoryListSchema,
+	UserNftAuthorizedListSchema,
+	UserNftListSchema,
+	UserProtocolSchema,
+	UserTokenAuthorizedListSchema,
+	UserTokenBalanceResponseSchema,
+	UserTokenListSchema,
+	UserTotalBalanceSchema,
+	UserTotalNetCurveSchema,
+	UserUsedChainListSchema,
+} from "./response-schemas.js";
 
 type ServicesShape = typeof Services;
 
@@ -66,6 +99,8 @@ export type ToolMetadata = {
 	description: string;
 	/** Zod schema for input parameters. */
 	parameters: z.ZodTypeAny;
+	/** Zod schema for the JSON response returned by sandboxImpl. Agent-facing context for jq construction. */
+	responseSchema: z.ZodTypeAny;
 	/** Example agent code snippet (one line). */
 	exampleCall: string;
 };
@@ -80,6 +115,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 		description:
 			"Retrieve a comprehensive list of all blockchain chains supported by the DeBank API. Returns information about each chain including their IDs, names, logo URLs, native token IDs, wrapped token IDs, and pre-execution support status. Use this to discover available chains before calling other chain-specific endpoints.",
 		parameters: z.object({}),
+		responseSchema: SupportedChainListSchema,
 		exampleCall: "await debank.chain.getSupportedChainList()",
 	},
 	{
@@ -96,6 +132,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Chain ID (e.g. 'eth', 'bsc', 'matic', 'arb', 'op', 'base', 'avax').",
 				),
 		}),
+		responseSchema: GetChainSchema,
 		exampleCall: "await debank.chain.getChain({id: 'eth'})",
 	},
 	// Protocol Endpoints
@@ -120,6 +157,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Comma-separated chain IDs (e.g. 'eth,bsc,matic'). If omitted, returns protocols across all supported chains.",
 				),
 		}),
+		responseSchema: AllProtocolsSchema,
 		exampleCall:
 			"await debank.protocol.getAllProtocolsOfSupportedChains({chain_ids: 'eth,bsc'})",
 	},
@@ -137,6 +175,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"The unique identifier of the protocol (e.g., 'bsc_pancakeswap' for PancakeSwap on BSC, 'uniswap', 'aave', 'curve'). Use debank_get_all_protocols_of_supported_chains to discover protocol IDs.",
 				),
 		}),
+		responseSchema: ProtocolInformationSchema,
 		exampleCall:
 			"await debank.protocol.getProtocolInformation({id: 'uniswap'})",
 	},
@@ -172,6 +211,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Maximum number of top holders to retrieve. Default and maximum is 100.",
 				),
 		}),
+		responseSchema: TopHoldersOfProtocolSchema,
 		exampleCall:
 			"await debank.protocol.getTopHoldersOfProtocol({id: 'uniswap', limit: 10})",
 	},
@@ -194,6 +234,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Chain ID (e.g. 'eth', 'bsc', 'matic', 'arb', 'op', 'base', 'avax').",
 				),
 		}),
+		responseSchema: PoolInformationSchema,
 		exampleCall:
 			"await debank.protocol.getPoolInformation({id: '0x...', chain_id: 'eth'})",
 	},
@@ -217,6 +258,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Token contract address or native token ID (e.g., '0xdac17f958d2ee523a2206206994597c13d831ec7' for USDT). Use debank.resolveWrappedToken() in execute() to resolve wrapped token keywords to addresses before passing here.",
 				),
 		}),
+		responseSchema: TokenInformationSchema,
 		exampleCall:
 			"await debank.token.getTokenInformation({chain_id: 'eth', id: '0xdac17f958d2ee523a2206206994597c13d831ec7'})",
 	},
@@ -239,6 +281,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Comma-separated list of token addresses (up to 100). Example: '0xdac17f958d2ee523a2206206994597c13d831ec7,0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'",
 				),
 		}),
+		responseSchema: ListTokenInformationSchema,
 		exampleCall:
 			"await debank.token.getListTokenInformation({chain_id: 'eth', ids: '0xdac17f958d2ee523a2206206994597c13d831ec7'})",
 	},
@@ -275,6 +318,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 				.optional()
 				.describe("Maximum number of holders to return. Default is 100."),
 		}),
+		responseSchema: TopHoldersOfTokenSchema,
 		exampleCall:
 			"await debank.token.getTopHoldersOfToken({id: '0xdac17f958d2ee523a2206206994597c13d831ec7', chain_id: 'eth', limit: 10})",
 	},
@@ -302,6 +346,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"The date for historical price data in UTC time zone. Format: YYYY-MM-DD (e.g., '2023-05-18').",
 				),
 		}),
+		responseSchema: TokenHistoryPriceSchema,
 		exampleCall:
 			"await debank.token.getTokenHistoryPrice({id: '0xdac17f958d2ee523a2206206994597c13d831ec7', chain_id: 'eth', date_at: '2023-05-18'})",
 	},
@@ -316,6 +361,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 		parameters: z.object({
 			id: z.string().describe("The user's wallet address."),
 		}),
+		responseSchema: UserUsedChainListSchema,
 		exampleCall: "await debank.user.getUserUsedChainList({id: '0x...'})",
 	},
 	{
@@ -333,6 +379,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 				),
 			id: z.string().describe("The user's wallet address."),
 		}),
+		responseSchema: UserChainBalanceSchema,
 		exampleCall:
 			"await debank.user.getUserChainBalance({id: '0x...', chain_id: 'eth'})",
 	},
@@ -351,6 +398,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 				),
 			id: z.string().describe("The user's wallet address."),
 		}),
+		responseSchema: UserProtocolSchema,
 		exampleCall:
 			"await debank.user.getUserProtocol({id: '0x...', protocol_id: 'uniswap'})",
 	},
@@ -369,6 +417,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 				),
 			id: z.string().describe("The user's wallet address."),
 		}),
+		responseSchema: UserComplexProtocolListSchema,
 		exampleCall:
 			"await debank.user.getUserComplexProtocolList({id: '0x...', chain_id: 'eth'})",
 	},
@@ -388,6 +437,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Comma-separated chain IDs (e.g. 'eth,bsc,matic'). If omitted, includes all supported chains.",
 				),
 		}),
+		responseSchema: UserAllComplexProtocolListSchema,
 		exampleCall:
 			"await debank.user.getUserAllComplexProtocolList({id: '0x...'})",
 	},
@@ -407,6 +457,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Comma-separated chain IDs (e.g. 'eth,bsc,matic'). If omitted, includes all supported chains.",
 				),
 		}),
+		responseSchema: UserAllSimpleProtocolListSchema,
 		exampleCall:
 			"await debank.user.getUserAllSimpleProtocolList({id: '0x...'})",
 	},
@@ -430,6 +481,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Token contract address or native token ID (e.g., '0xdac17f958d2ee523a2206206994597c13d831ec7'). Use debank.resolveWrappedToken() in execute() to resolve wrapped token keywords to addresses before passing here.",
 				),
 		}),
+		responseSchema: UserTokenBalanceResponseSchema,
 		exampleCall:
 			"await debank.user.getUserTokenBalance({id: '0x...', chain_id: 'eth', token_id: '0xdac17f958d2ee523a2206206994597c13d831ec7'})",
 	},
@@ -454,6 +506,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"If true, returns all tokens including non-core tokens. Default is true.",
 				),
 		}),
+		responseSchema: UserTokenListSchema,
 		exampleCall:
 			"await debank.user.getUserTokenList({id: '0x...', chain_id: 'eth'})",
 	},
@@ -473,6 +526,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"If true, includes all tokens in the response. Default is true.",
 				),
 		}),
+		responseSchema: UserAllTokenListSchema,
 		exampleCall: "await debank.user.getUserAllTokenList({id: '0x...'})",
 	},
 	{
@@ -496,6 +550,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"If false, only returns NFTs from verified collections. Default is true.",
 				),
 		}),
+		responseSchema: UserNftListSchema,
 		exampleCall:
 			"await debank.user.getUserNftList({id: '0x...', chain_id: 'eth'})",
 	},
@@ -519,6 +574,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Comma-separated chain IDs (e.g. 'eth,bsc,matic'). If omitted, includes all supported chains.",
 				),
 		}),
+		responseSchema: UserAllNftListSchema,
 		exampleCall: "await debank.user.getUserAllNftList({id: '0x...'})",
 	},
 	{
@@ -556,6 +612,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 				.optional()
 				.describe("Number of entries to return. Maximum is 20."),
 		}),
+		responseSchema: UserHistoryListSchema,
 		exampleCall:
 			"await debank.user.getUserHistoryList({id: '0x...', chain_id: 'eth'})",
 	},
@@ -589,6 +646,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Comma-separated chain IDs (e.g. 'eth,bsc,matic'). If omitted, includes all supported chains.",
 				),
 		}),
+		responseSchema: UserAllHistoryListSchema,
 		exampleCall: "await debank.user.getUserAllHistoryList({id: '0x...'})",
 	},
 	{
@@ -606,6 +664,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Chain ID (e.g. 'eth', 'bsc', 'matic', 'arb', 'op', 'base', 'avax').",
 				),
 		}),
+		responseSchema: UserTokenAuthorizedListSchema,
 		exampleCall:
 			"await debank.user.getUserTokenAuthorizedList({id: '0x...', chain_id: 'eth'})",
 	},
@@ -624,6 +683,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Chain ID (e.g. 'eth', 'bsc', 'matic', 'arb', 'op', 'base', 'avax').",
 				),
 		}),
+		responseSchema: UserNftAuthorizedListSchema,
 		exampleCall:
 			"await debank.user.getUserNftAuthorizedList({id: '0x...', chain_id: 'eth'})",
 	},
@@ -637,6 +697,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 		parameters: z.object({
 			id: z.string().describe("The user's wallet address."),
 		}),
+		responseSchema: UserTotalBalanceSchema,
 		exampleCall: "await debank.user.getUserTotalBalance({id: '0x...'})",
 	},
 	{
@@ -654,6 +715,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Chain ID (e.g. 'eth', 'bsc', 'matic', 'arb', 'op', 'base', 'avax').",
 				),
 		}),
+		responseSchema: UserChainNetCurveSchema,
 		exampleCall:
 			"await debank.user.getUserChainNetCurve({id: '0x...', chain_id: 'eth'})",
 	},
@@ -673,6 +735,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Comma-separated chain IDs (e.g. 'eth,bsc,matic'). If omitted, includes all supported chains.",
 				),
 		}),
+		responseSchema: UserTotalNetCurveSchema,
 		exampleCall: "await debank.user.getUserTotalNetCurve({id: '0x...'})",
 	},
 	// Wallet Endpoints
@@ -690,6 +753,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Chain ID (e.g. 'eth', 'bsc', 'matic', 'arb', 'op', 'base', 'avax').",
 				),
 		}),
+		responseSchema: GasMarketSchema,
 		exampleCall: "await debank.chain.getGasPrices({chain_id: 'eth'})",
 	},
 	// Transaction Endpoints
@@ -713,6 +777,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"Optional JSON string array of transactions to execute before the main transaction (e.g., approval transactions).",
 				),
 		}),
+		responseSchema: PreExecResultSchema,
 		exampleCall:
 			'await debank.transaction.preExecTransaction({tx: \'{"from":"0x...","to":"0x...","data":"0x...","value":"0x0"}\'})',
 	},
@@ -730,6 +795,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 					"The transaction object as a JSON string to be explained. Must include transaction data field.",
 				),
 		}),
+		responseSchema: TransactionExplanationSchema,
 		exampleCall:
 			'await debank.transaction.explainTransaction({tx: \'{"from":"0x...","to":"0x...","data":"0x..."}\'})',
 	},
