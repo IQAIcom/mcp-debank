@@ -37,30 +37,53 @@ export function tryReserveBudget(scope: ExecutionScope): boolean {
 	return true;
 }
 
-/** Wait for a concurrency slot. Resolves immediately if one is free. */
+/**
+ * Wait for a concurrency slot. Resolves immediately if one is free.
+ *
+ * Invariant: `current` is the number of *held* permits (a holder is anything
+ * between a resolved acquireSlot and its matching releaseSlot). A queued waiter
+ * holds nothing until a permit is handed to it.
+ *
+ * The permit is granted by whoever wakes us — releaseSlot (direct hand-off) or
+ * cancelScope — so we must NOT increment `current` after the await. Doing so
+ * was the source of the over-subscription race: releaseSlot decremented and
+ * signalled, but the waiter only re-incremented on its next microtask, leaving
+ * a window where a fast-path acquireSlot could push `current` past `max`.
+ */
 export async function acquireSlot(scope: ExecutionScope): Promise<void> {
 	if (scope.semaphore.current < scope.semaphore.max) {
 		scope.semaphore.current += 1;
 		return;
 	}
 	await new Promise<void>((resolve) => scope.semaphore.queue.push(resolve));
-	scope.semaphore.current += 1;
 }
 
 export function releaseSlot(scope: ExecutionScope): void {
-	scope.semaphore.current -= 1;
 	const next = scope.semaphore.queue.shift();
-	if (next) next();
+	if (next) {
+		// Hand the permit straight to the next waiter: net change to `current`
+		// is zero (one holder out, one in), closing the race window.
+		next();
+	} else {
+		scope.semaphore.current -= 1;
+	}
 }
 
 /**
  * Abort the scope and drain queued waiters. Each waiter resolves and is
  * expected to re-check `scope.controller.signal.aborted` before doing work.
  * Idempotent.
+ *
+ * A drained waiter becomes a holder (it proceeds and will call releaseSlot), so
+ * we grant it a permit here — otherwise its eventual release would drive
+ * `current` negative.
  */
 export function cancelScope(scope: ExecutionScope): void {
 	if (scope.controller.signal.aborted) return;
 	scope.controller.abort();
 	const waiters = scope.semaphore.queue.splice(0);
-	for (const r of waiters) r();
+	for (const r of waiters) {
+		scope.semaphore.current += 1;
+		r();
+	}
 }
