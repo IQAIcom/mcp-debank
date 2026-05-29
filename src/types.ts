@@ -166,6 +166,48 @@ export type PortfolioItem = {
 };
 
 /**
+ * Simple protocol position (per-chain aggregates, no portfolio items).
+ * Shape returned by /v1/user/simple_protocol_list.
+ */
+export type UserSimpleProtocolPosition = {
+	id: string;
+	chain: string;
+	name: string;
+	site_url: string;
+	logo_url: string;
+	has_supported_portfolio: boolean;
+	tvl: number;
+	net_usd_value: number;
+	asset_usd_value: number;
+	debt_usd_value: number;
+};
+
+/**
+ * App-protocol catalog entry (cross-chain dApps wrapping multiple protocols).
+ * Shape returned by /v1/app_protocol/list.
+ */
+export type AppProtocolInfo = {
+	id: string;
+	name: string;
+	site_url: string;
+	logo_url: string;
+	has_supported_portfolio: boolean;
+};
+
+/**
+ * App-protocol user position with portfolio items.
+ * Shape returned by /v1/user/complex_app_list.
+ */
+export type AppProtocolPosition = {
+	id: string;
+	name: string;
+	site_url: string;
+	logo_url: string;
+	has_supported_portfolio: boolean;
+	portfolio_item_list: PortfolioItem[];
+};
+
+/**
  * User token balance
  */
 export type UserTokenBalance = {

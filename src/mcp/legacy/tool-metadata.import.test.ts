@@ -46,6 +46,6 @@ describe("tool-metadata side-effect-freeness", () => {
 			`spawnSync failed: ${result.error?.message ?? "no error reported"}; stderr: ${result.stderr.toString()}`,
 		).toBeUndefined();
 		expect(result.status, `stderr: ${result.stderr.toString()}`).toBe(0);
-		expect(result.stdout.toString()).toBe("31");
+		expect(result.stdout.toString()).toBe("35");
 	});
 });

@@ -1,6 +1,11 @@
 import { config } from "../config.js";
 import { createChildLogger } from "../lib/utils/index.js";
-import type { PoolInfo, ProtocolHolder, ProtocolInfo } from "../types.js";
+import type {
+	AppProtocolInfo,
+	PoolInfo,
+	ProtocolHolder,
+	ProtocolInfo,
+} from "../types.js";
 import { BaseService, type RequestOptions } from "./base.service.js";
 
 const logger = createChildLogger("DeBank Protocol Service");
@@ -51,6 +56,39 @@ export class ProtocolService extends BaseService {
 				? `Failed to fetch protocols for chains ${args.chain_ids}`
 				: "Failed to fetch protocols list";
 			throw logAndWrapError(context, error);
+		}
+	}
+
+	async getProtocolListRaw(
+		args: { chain_id: string },
+		options?: RequestOptions,
+	): Promise<ProtocolInfo[]> {
+		try {
+			return await this.fetchWithToolConfig<ProtocolInfo[]>(
+				`${this.baseUrl}/protocol/list?chain_id=${args.chain_id}`,
+				config.protocolsListLifeTime,
+				options,
+			);
+		} catch (error) {
+			throw logAndWrapError(
+				`Failed to fetch protocols on chain ${args.chain_id}`,
+				error,
+			);
+		}
+	}
+
+	async getAppProtocolListRaw(
+		_args?: Record<string, never>,
+		options?: RequestOptions,
+	): Promise<AppProtocolInfo[]> {
+		try {
+			return await this.fetchWithToolConfig<AppProtocolInfo[]>(
+				`${this.baseUrl}/app_protocol/list`,
+				config.protocolsListLifeTime,
+				options,
+			);
+		} catch (error) {
+			throw logAndWrapError("Failed to fetch app-protocol list", error);
 		}
 	}
 

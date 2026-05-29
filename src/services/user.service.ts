@@ -5,6 +5,7 @@
 
 import { createChildLogger } from "../lib/utils/index.js";
 import type {
+	AppProtocolPosition,
 	NetCurvePoint,
 	NFTAuthorization,
 	TokenAuthorization,
@@ -12,6 +13,7 @@ import type {
 	UserHistoryItem,
 	UserNFT,
 	UserProtocolPosition,
+	UserSimpleProtocolPosition,
 	UserTokenBalance,
 	UserTotalBalance,
 } from "../types.js";
@@ -144,6 +146,42 @@ export class UserService extends BaseService {
 				? `Failed to fetch all simple protocols for user ${args.id} on chains ${args.chain_ids}`
 				: `Failed to fetch all simple protocols for user ${args.id}`;
 			throw logAndWrapError(context, error);
+		}
+	}
+
+	async getUserSimpleProtocolListRaw(
+		args: { id: string; chain_id: string },
+		options?: RequestOptions,
+	): Promise<UserSimpleProtocolPosition[]> {
+		try {
+			return await this.fetchWithToolConfig<UserSimpleProtocolPosition[]>(
+				`${this.baseUrl}/user/simple_protocol_list?id=${args.id}&chain_id=${args.chain_id}`,
+				this.DEFAULT_CACHE_TTL_SECONDS,
+				options,
+			);
+		} catch (error) {
+			throw logAndWrapError(
+				`Failed to fetch simple protocol list for user ${args.id} on ${args.chain_id}`,
+				error,
+			);
+		}
+	}
+
+	async getUserComplexAppListRaw(
+		args: { id: string },
+		options?: RequestOptions,
+	): Promise<AppProtocolPosition[]> {
+		try {
+			return await this.fetchWithToolConfig<AppProtocolPosition[]>(
+				`${this.baseUrl}/user/complex_app_list?id=${args.id}`,
+				this.DEFAULT_CACHE_TTL_SECONDS,
+				options,
+			);
+		} catch (error) {
+			throw logAndWrapError(
+				`Failed to fetch complex app list for user ${args.id}`,
+				error,
+			);
 		}
 	}
 

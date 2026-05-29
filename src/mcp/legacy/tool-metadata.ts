@@ -1,6 +1,6 @@
 // src/mcp/legacy/tool-metadata.ts
 //
-// Side-effect-free metadata for the 31 legacy `debank_*` tools. Used by:
+// Side-effect-free metadata for the legacy `debank_*` tools. Used by:
 //   - scripts/build-docs-index.ts (build-time docs index generation)
 //   - src/mcp/legacy/tool-handlers.ts (server-start tool registration)
 //
@@ -18,12 +18,14 @@ import { z } from "zod";
 import type * as Services from "../../services/index.js";
 import {
 	AllProtocolsSchema,
+	AppProtocolListSchema,
 	GasMarketSchema,
 	GetChainSchema,
 	ListTokenInformationSchema,
 	PoolInformationSchema,
 	PreExecResultSchema,
 	ProtocolInformationSchema,
+	ProtocolListSchema,
 	SupportedChainListSchema,
 	TokenHistoryPriceSchema,
 	TokenInformationSchema,
@@ -37,11 +39,13 @@ import {
 	UserAllTokenListSchema,
 	UserChainBalanceSchema,
 	UserChainNetCurveSchema,
+	UserComplexAppListSchema,
 	UserComplexProtocolListSchema,
 	UserHistoryListSchema,
 	UserNftAuthorizedListSchema,
 	UserNftListSchema,
 	UserProtocolSchema,
+	UserSimpleProtocolListSchema,
 	UserTokenAuthorizedListSchema,
 	UserTokenBalanceResponseSchema,
 	UserTokenListSchema,
@@ -152,6 +156,32 @@ export const TOOL_METADATA: ToolMetadata[] = [
 		responseSchema: AllProtocolsSchema,
 		exampleCall:
 			"await debank.protocol.getAllProtocolsOfSupportedChains({chain_ids: 'eth,bsc'})",
+	},
+	{
+		name: "debank_get_protocol_list",
+		qualified: "debank.protocol.getProtocolList",
+		sandboxImpl: lazyMethod("protocolService", "getProtocolListRaw"),
+		description:
+			"Retrieve all DeFi protocols available on a specific blockchain. Returns each protocol's ID, chain, name, logo URL, site URL, portfolio support status, and TVL. Use when you want the protocol catalog for a single chain rather than the cross-chain list.",
+		parameters: z.object({
+			chain_id: z
+				.string()
+				.describe(
+					"Chain ID (e.g. 'eth', 'bsc', 'matic', 'arb', 'op', 'base', 'avax').",
+				),
+		}),
+		responseSchema: ProtocolListSchema,
+		exampleCall: "await debank.protocol.getProtocolList({chain_id: 'eth'})",
+	},
+	{
+		name: "debank_get_app_protocol_list",
+		qualified: "debank.protocol.getAppProtocolList",
+		sandboxImpl: lazyMethod("protocolService", "getAppProtocolListRaw"),
+		description:
+			"Retrieve the catalog of supported app-protocols (cross-chain dApps that wrap multiple underlying protocols). Returns id, name, site_url, logo_url, and portfolio support status for each. No parameters required.",
+		parameters: z.object({}),
+		responseSchema: AppProtocolListSchema,
+		exampleCall: "await debank.protocol.getAppProtocolList()",
 	},
 	{
 		name: "debank_get_protocol_information",
@@ -439,6 +469,36 @@ export const TOOL_METADATA: ToolMetadata[] = [
 		responseSchema: UserAllSimpleProtocolListSchema,
 		exampleCall:
 			"await debank.user.getUserAllSimpleProtocolList({id: '0x...'})",
+	},
+	{
+		name: "debank_get_user_simple_protocol_list",
+		qualified: "debank.user.getUserSimpleProtocolList",
+		sandboxImpl: lazyMethod("userService", "getUserSimpleProtocolListRaw"),
+		description:
+			"Retrieve a user's protocol balances on a single chain. Returns each protocol's aggregate position (TVL, net/asset/debt USD value) without detailed per-position breakdowns — cheaper than the complex variant when you only need totals. Use the all-chains variant when you need cross-chain coverage.",
+		parameters: z.object({
+			id: z.string().describe("The user's wallet address."),
+			chain_id: z
+				.string()
+				.describe(
+					"Chain ID (e.g. 'eth', 'bsc', 'matic', 'arb', 'op', 'base', 'avax').",
+				),
+		}),
+		responseSchema: UserSimpleProtocolListSchema,
+		exampleCall:
+			"await debank.user.getUserSimpleProtocolList({id: '0x...', chain_id: 'eth'})",
+	},
+	{
+		name: "debank_get_user_complex_app_list",
+		qualified: "debank.user.getUserComplexAppList",
+		sandboxImpl: lazyMethod("userService", "getUserComplexAppListRaw"),
+		description:
+			"Retrieve a user's detailed positions across all app-protocols (cross-chain dApps that wrap multiple underlying protocols). Returns full portfolio_item_list breakdowns for each app. Use when you need app-level (not chain-level) views of DeFi exposure.",
+		parameters: z.object({
+			id: z.string().describe("The user's wallet address."),
+		}),
+		responseSchema: UserComplexAppListSchema,
+		exampleCall: "await debank.user.getUserComplexAppList({id: '0x...'})",
 	},
 	{
 		name: "debank_get_user_token_balance",

@@ -1,6 +1,6 @@
 // src/mcp/legacy/response-schemas.ts
 //
-// Zod response schemas for all 31 tool-metadata entries. Derived from the
+// Zod response schemas for the tool-metadata entries. Derived from the
 // TypeScript types in src/types.ts. These are agent-facing context — accurate
 // enough for jq-filter construction, not intended as runtime validators.
 
@@ -89,8 +89,22 @@ export const ProtocolInfoSchema = z.object({
 /** debank.protocol.getAllProtocolsOfSupportedChains */
 export const AllProtocolsSchema = z.array(ProtocolInfoSchema);
 
+/** debank.protocol.getProtocolList — same shape as the cross-chain variant. */
+export const ProtocolListSchema = z.array(ProtocolInfoSchema);
+
 /** debank.protocol.getProtocolInformation */
 export const ProtocolInformationSchema = ProtocolInfoSchema;
+
+const AppProtocolInfoSchema = z.object({
+	id: z.string().describe("App-protocol identifier."),
+	name: z.string(),
+	site_url: z.string(),
+	logo_url: z.string(),
+	has_supported_portfolio: z.boolean(),
+});
+
+/** debank.protocol.getAppProtocolList */
+export const AppProtocolListSchema = z.array(AppProtocolInfoSchema);
 
 export const ProtocolHolderSchema = z.object({
 	address: z.string().describe("Wallet address of the holder."),
@@ -221,6 +235,38 @@ export const UserAllComplexProtocolListSchema = z.array(
 export const UserAllSimpleProtocolListSchema = z.array(
 	UserProtocolPositionSchema,
 );
+
+const SimpleProtocolPositionSchema = z.object({
+	id: z.string(),
+	chain: z.string(),
+	name: z.string(),
+	site_url: z.string(),
+	logo_url: z.string(),
+	has_supported_portfolio: z.boolean(),
+	tvl: z.number().describe("Total value locked in USD."),
+	net_usd_value: z
+		.number()
+		.describe("User's net USD position in the protocol."),
+	asset_usd_value: z.number(),
+	debt_usd_value: z.number(),
+});
+
+/** debank.user.getUserSimpleProtocolList — per-chain aggregates (no portfolio items). */
+export const UserSimpleProtocolListSchema = z.array(
+	SimpleProtocolPositionSchema,
+);
+
+const AppProtocolPositionSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	site_url: z.string(),
+	logo_url: z.string(),
+	has_supported_portfolio: z.boolean(),
+	portfolio_item_list: z.array(PortfolioItemSchema),
+});
+
+/** debank.user.getUserComplexAppList */
+export const UserComplexAppListSchema = z.array(AppProtocolPositionSchema);
 
 const UserTokenBalanceSchema = z.object({
 	id: z.string(),

@@ -261,7 +261,7 @@ export async function installDebankClient(
 		);
 	}
 
-	// 31 service calls
+	// One bridge per metadata entry — see TOOL_METADATA.
 	for (const m of TOOL_METADATA) {
 		const rawFn = (await m.sandboxImpl()) as (
 			args: unknown,

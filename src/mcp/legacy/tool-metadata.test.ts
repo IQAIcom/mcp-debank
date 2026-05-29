@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { TOOL_METADATA } from "./tool-metadata.js";
 
 describe("tool-metadata in-process checks", () => {
-	it("contains exactly 31 entries", () => {
-		expect(TOOL_METADATA).toHaveLength(31);
+	it("contains exactly 35 entries", () => {
+		expect(TOOL_METADATA).toHaveLength(35);
 	});
 
 	it("every entry has all required fields", () => {

@@ -78,6 +78,41 @@ export const ENTRIES: IndexEntry[] = [
 	},
 	{
 		kind: "method",
+		name: "debank_get_protocol_list",
+		qualified: "debank.protocol.getProtocolList",
+		description:
+			"Retrieve all DeFi protocols available on a specific blockchain. Returns each protocol's ID, chain, name, logo URL, site URL, portfolio support status, and TVL. Use when you want the protocol catalog for a single chain rather than the cross-chain list.",
+		params: {
+			$schema: "https://json-schema.org/draft/2020-12/schema",
+			type: "object",
+			properties: {
+				chain_id: {
+					description:
+						"Chain ID (e.g. 'eth', 'bsc', 'matic', 'arb', 'op', 'base', 'avax').",
+					type: "string",
+				},
+			},
+			required: ["chain_id"],
+			additionalProperties: false,
+		},
+		exampleCall: "await debank.protocol.getProtocolList({chain_id: 'eth'})",
+	},
+	{
+		kind: "method",
+		name: "debank_get_app_protocol_list",
+		qualified: "debank.protocol.getAppProtocolList",
+		description:
+			"Retrieve the catalog of supported app-protocols (cross-chain dApps that wrap multiple underlying protocols). Returns id, name, site_url, logo_url, and portfolio support status for each. No parameters required.",
+		params: {
+			$schema: "https://json-schema.org/draft/2020-12/schema",
+			type: "object",
+			properties: {},
+			additionalProperties: false,
+		},
+		exampleCall: "await debank.protocol.getAppProtocolList()",
+	},
+	{
+		kind: "method",
 		name: "debank_get_protocol_information",
 		qualified: "debank.protocol.getProtocolInformation",
 		description:
@@ -435,6 +470,52 @@ export const ENTRIES: IndexEntry[] = [
 		},
 		exampleCall:
 			"await debank.user.getUserAllSimpleProtocolList({id: '0x...'})",
+	},
+	{
+		kind: "method",
+		name: "debank_get_user_simple_protocol_list",
+		qualified: "debank.user.getUserSimpleProtocolList",
+		description:
+			"Retrieve a user's protocol balances on a single chain. Returns each protocol's aggregate position (TVL, net/asset/debt USD value) without detailed per-position breakdowns — cheaper than the complex variant when you only need totals. Use the all-chains variant when you need cross-chain coverage.",
+		params: {
+			$schema: "https://json-schema.org/draft/2020-12/schema",
+			type: "object",
+			properties: {
+				id: {
+					description: "The user's wallet address.",
+					type: "string",
+				},
+				chain_id: {
+					description:
+						"Chain ID (e.g. 'eth', 'bsc', 'matic', 'arb', 'op', 'base', 'avax').",
+					type: "string",
+				},
+			},
+			required: ["id", "chain_id"],
+			additionalProperties: false,
+		},
+		exampleCall:
+			"await debank.user.getUserSimpleProtocolList({id: '0x...', chain_id: 'eth'})",
+	},
+	{
+		kind: "method",
+		name: "debank_get_user_complex_app_list",
+		qualified: "debank.user.getUserComplexAppList",
+		description:
+			"Retrieve a user's detailed positions across all app-protocols (cross-chain dApps that wrap multiple underlying protocols). Returns full portfolio_item_list breakdowns for each app. Use when you need app-level (not chain-level) views of DeFi exposure.",
+		params: {
+			$schema: "https://json-schema.org/draft/2020-12/schema",
+			type: "object",
+			properties: {
+				id: {
+					description: "The user's wallet address.",
+					type: "string",
+				},
+			},
+			required: ["id"],
+			additionalProperties: false,
+		},
+		exampleCall: "await debank.user.getUserComplexAppList({id: '0x...'})",
 	},
 	{
 		kind: "method",
