@@ -556,19 +556,13 @@ export const TOOL_METADATA: ToolMetadata[] = [
 		qualified: "debank.user.getUserHistoryList",
 		sandboxImpl: lazyMethod("userService", "getUserHistoryListRaw"),
 		description:
-			"Fetch a user's transaction history on a specified chain. Returns a list of past transactions with details including transaction type, tokens involved, values, and timestamps. Supports filtering by token and pagination.",
+			"Fetch a user's transaction history on a specified chain. Returns a list of past transactions with details including transaction type, tokens involved, values, and timestamps. Supports pagination.",
 		parameters: z.object({
 			id: z.string().describe("The user's wallet address."),
 			chain_id: z
 				.string()
 				.describe(
 					"Chain ID (e.g. 'eth', 'bsc', 'matic', 'arb', 'op', 'base', 'avax').",
-				),
-			token_id: z
-				.string()
-				.optional()
-				.describe(
-					"Optional token contract address or native token ID to filter history. Use debank.resolveWrappedToken() in execute() to resolve wrapped token keywords to addresses before passing here.",
 				),
 			start_time: z
 				.number()
@@ -594,7 +588,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 		qualified: "debank.user.getUserAllHistoryList",
 		sandboxImpl: lazyMethod("userService", "getUserAllHistoryListRaw"),
 		description:
-			"Retrieve a user's transaction history across all supported chains. Provides a comprehensive overview of DeFi activities across the entire blockchain ecosystem. Supports pagination and chain filtering.",
+			"Retrieve a user's transaction history across all supported chains. Provides a comprehensive overview of DeFi activities across the entire blockchain ecosystem. Supports pagination.",
 		parameters: z.object({
 			id: z.string().describe("The user's wallet address."),
 			start_time: z
@@ -611,12 +605,6 @@ export const TOOL_METADATA: ToolMetadata[] = [
 				.max(20)
 				.optional()
 				.describe("Number of entries to return. Maximum is 20."),
-			chain_ids: z
-				.string()
-				.optional()
-				.describe(
-					"Comma-separated chain IDs (e.g. 'eth,bsc,matic'). If omitted, includes all supported chains.",
-				),
 		}),
 		responseSchema: UserAllHistoryListSchema,
 		exampleCall: "await debank.user.getUserAllHistoryList({id: '0x...'})",

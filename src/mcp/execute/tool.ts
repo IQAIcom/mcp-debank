@@ -27,12 +27,16 @@ export const executeTool = {
 	annotations: { readOnlyHint: false },
 	execute: async (args: z.infer<typeof PARAMS>) => {
 		let sandboxResult: SandboxResult;
+		const { createExecutionScope, cancelScope } = await import("./scope.js");
+		const scope = createExecutionScope();
 		try {
 			const [{ runInSandbox }, { installDebankClient }] = await Promise.all([
 				import("./sandbox.js"),
 				import("./client.js"),
 			]);
-			sandboxResult = await runInSandbox(args.code, installDebankClient);
+			sandboxResult = await runInSandbox(args.code, (ctx) =>
+				installDebankClient(ctx, scope),
+			);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			const isLoadFailure =
@@ -47,6 +51,8 @@ export const executeTool = {
 				log_lines: [],
 				err_lines: err instanceof Error && err.stack ? [err.stack] : [],
 			};
+		} finally {
+			cancelScope(scope);
 		}
 
 		/**

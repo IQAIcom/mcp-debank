@@ -1,16 +1,25 @@
 // src/mcp/execute/client.ts
 //
-// Two bridges: installServiceCall (dual-timeout, JSON args) for *Raw() methods;
-// installResolver (spread args, optional sync) for in-memory helpers.
+// Two bridges: installServiceCall (dual-timeout, JSON args, scope-bounded)
+// for *Raw() methods; installResolver (spread args, optional sync) for
+// in-memory helpers. Service calls consume from a per-execute ExecutionScope
+// so a single guest script can't fan-out unbounded upstream requests.
 
 import dedent from "dedent";
 import type * as IVM from "isolated-vm";
+import type { z } from "zod";
 import {
 	resolveChain,
 	resolveChains,
 	resolveWrappedToken,
 } from "../../lib/entity-resolver.js";
 import { TOOL_METADATA } from "../legacy/tool-metadata.js";
+import {
+	acquireSlot,
+	type ExecutionScope,
+	releaseSlot,
+	tryReserveBudget,
+} from "./scope.js";
 
 const ABORT_MS = 5_000;
 const AXIOS_MS = 6_000;
@@ -98,8 +107,10 @@ const SYNC_RESOLVER_WRAPPER = dedent`
 async function installServiceCall(
 	ctx: IVM.Context,
 	ivm: typeof IVM,
+	scope: ExecutionScope,
 	spec: {
 		qualified: string;
+		parameters: z.ZodTypeAny;
 		rawFn: (
 			args: unknown,
 			options: { signal: AbortSignal; timeout: number },
@@ -108,7 +119,32 @@ async function installServiceCall(
 ): Promise<void> {
 	const [group, method] = parseQualified(spec.qualified);
 	const ref = new ivm.Reference(async (argsJson: string) => {
+		if (scope.controller.signal.aborted) {
+			return envelopeFail(
+				ivm,
+				`Execute scope cancelled before ${spec.qualified}`,
+			);
+		}
+		if (!tryReserveBudget(scope)) {
+			return envelopeFail(
+				ivm,
+				`Execute call budget exceeded (${scope.budget.max} calls per invocation): ${spec.qualified}`,
+			);
+		}
+		await acquireSlot(scope);
+		if (scope.controller.signal.aborted) {
+			releaseSlot(scope);
+			return envelopeFail(
+				ivm,
+				`Execute scope cancelled before ${spec.qualified}`,
+			);
+		}
+
 		const controller = new AbortController();
+		const onScopeAbort = () => controller.abort();
+		scope.controller.signal.addEventListener("abort", onScopeAbort, {
+			once: true,
+		});
 		let timer: NodeJS.Timeout | undefined;
 		const abortPromise = new Promise<never>((_, reject) => {
 			timer = setTimeout(() => {
@@ -118,9 +154,20 @@ async function installServiceCall(
 			timer.unref?.();
 		});
 		try {
-			const args: unknown = argsJson === undefined ? {} : JSON.parse(argsJson);
+			const rawArgs: unknown =
+				argsJson === undefined ? {} : JSON.parse(argsJson);
+			const parsed = spec.parameters.safeParse(rawArgs);
+			if (!parsed.success) {
+				return envelopeFail(
+					ivm,
+					`Invalid arguments for ${spec.qualified}: ${parsed.error.message}`,
+				);
+			}
 			const result = await Promise.race([
-				spec.rawFn(args, { signal: controller.signal, timeout: AXIOS_MS }),
+				spec.rawFn(parsed.data, {
+					signal: controller.signal,
+					timeout: AXIOS_MS,
+				}),
 				abortPromise,
 			]);
 			return envelopeOk(ivm, result);
@@ -132,6 +179,8 @@ async function installServiceCall(
 				e.message.startsWith("DeBank call timed out after 5s")
 			) {
 				message = e.message;
+			} else if (scope.controller.signal.aborted) {
+				message = `Execute scope cancelled during ${spec.qualified}`;
 			} else {
 				const isAbort = controller.signal.aborted;
 				const isAxiosTimeout =
@@ -144,7 +193,9 @@ async function installServiceCall(
 			}
 			return envelopeFail(ivm, message);
 		} finally {
+			scope.controller.signal.removeEventListener("abort", onScopeAbort);
 			if (timer) clearTimeout(timer);
+			releaseSlot(scope);
 		}
 	});
 	await ctx.evalClosure(SERVICE_CALL_WRAPPER, [ref, group, method]);
@@ -184,7 +235,10 @@ async function installResolver(
 	await ctx.evalClosure(wrapper, [ref, name]);
 }
 
-export async function installDebankClient(ctx: IVM.Context): Promise<void> {
+export async function installDebankClient(
+	ctx: IVM.Context,
+	scope: ExecutionScope,
+): Promise<void> {
 	const mod = await import("isolated-vm");
 	const ivm = ((mod as unknown as { default?: typeof IVM }).default ??
 		mod) as typeof IVM;
@@ -206,8 +260,9 @@ export async function installDebankClient(ctx: IVM.Context): Promise<void> {
 			args: unknown,
 			options: { signal: AbortSignal; timeout: number },
 		) => Promise<unknown>;
-		await installServiceCall(ctx, ivm, {
+		await installServiceCall(ctx, ivm, scope, {
 			qualified: m.qualified,
+			parameters: m.parameters,
 			rawFn,
 		});
 	}

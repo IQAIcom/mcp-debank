@@ -588,7 +588,7 @@ export const ENTRIES: IndexEntry[] = [
 		name: "debank_get_user_history_list",
 		qualified: "debank.user.getUserHistoryList",
 		description:
-			"Fetch a user's transaction history on a specified chain. Returns a list of past transactions with details including transaction type, tokens involved, values, and timestamps. Supports filtering by token and pagination.",
+			"Fetch a user's transaction history on a specified chain. Returns a list of past transactions with details including transaction type, tokens involved, values, and timestamps. Supports pagination.",
 		params: {
 			$schema: "https://json-schema.org/draft/2020-12/schema",
 			type: "object",
@@ -600,11 +600,6 @@ export const ENTRIES: IndexEntry[] = [
 				chain_id: {
 					description:
 						"Chain ID (e.g. 'eth', 'bsc', 'matic', 'arb', 'op', 'base', 'avax').",
-					type: "string",
-				},
-				token_id: {
-					description:
-						"Optional token contract address or native token ID to filter history. Use debank.resolveWrappedToken() in execute() to resolve wrapped token keywords to addresses before passing here.",
 					type: "string",
 				},
 				start_time: {
@@ -632,7 +627,7 @@ export const ENTRIES: IndexEntry[] = [
 		name: "debank_get_user_all_history_list",
 		qualified: "debank.user.getUserAllHistoryList",
 		description:
-			"Retrieve a user's transaction history across all supported chains. Provides a comprehensive overview of DeFi activities across the entire blockchain ecosystem. Supports pagination and chain filtering.",
+			"Retrieve a user's transaction history across all supported chains. Provides a comprehensive overview of DeFi activities across the entire blockchain ecosystem. Supports pagination.",
 		params: {
 			$schema: "https://json-schema.org/draft/2020-12/schema",
 			type: "object",
@@ -653,11 +648,6 @@ export const ENTRIES: IndexEntry[] = [
 					type: "integer",
 					exclusiveMinimum: 0,
 					maximum: 20,
-				},
-				chain_ids: {
-					description:
-						"Comma-separated chain IDs (e.g. 'eth,bsc,matic'). If omitted, includes all supported chains.",
-					type: "string",
 				},
 			},
 			required: ["id"],

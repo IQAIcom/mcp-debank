@@ -57,7 +57,8 @@ describe("execute/client.ts proxy forwarding", () => {
 		);
 
 		const { installDebankClient } = await import("./client.js");
-		await installDebankClient(ctx);
+		const { createExecutionScope } = await import("./scope.js");
+		await installDebankClient(ctx, createExecutionScope());
 
 		const script = await isolate.compileScript(
 			`(async () => { return await debank.user.getUserChainBalance({chain_id:"eth", id:"0xabc"}); })()`,
@@ -90,7 +91,8 @@ describe("execute/client.ts proxy forwarding", () => {
 		);
 
 		const { installDebankClient } = await import("./client.js");
-		await installDebankClient(ctx);
+		const { createExecutionScope } = await import("./scope.js");
+		await installDebankClient(ctx, createExecutionScope());
 
 		const script = await isolate.compileScript(
 			`(async () => { return typeof debank.user.getUserChainBalanceRaw; })()`,
@@ -114,7 +116,8 @@ describe("execute/client.ts proxy forwarding", () => {
 		);
 
 		const { installDebankClient } = await import("./client.js");
-		await installDebankClient(ctx);
+		const { createExecutionScope } = await import("./scope.js");
+		await installDebankClient(ctx, createExecutionScope());
 
 		const script = await isolate.compileScript(
 			`(async () => { return await debank.resolveChain("BSC"); })()`,
@@ -135,7 +138,8 @@ describe("execute/client.ts proxy forwarding", () => {
 		);
 
 		const { installDebankClient } = await import("./client.js");
-		await installDebankClient(ctx);
+		const { createExecutionScope } = await import("./scope.js");
+		await installDebankClient(ctx, createExecutionScope());
 
 		const script = await isolate.compileScript(
 			`(async () => { return await debank.resolveChains("Ethereum, Polygon"); })()`,
@@ -156,7 +160,8 @@ describe("execute/client.ts proxy forwarding", () => {
 		);
 
 		const { installDebankClient } = await import("./client.js");
-		await installDebankClient(ctx);
+		const { createExecutionScope } = await import("./scope.js");
+		await installDebankClient(ctx, createExecutionScope());
 
 		const script = await isolate.compileScript(
 			`(() => { return debank.resolveWrappedToken("WETH", "eth"); })()`,
@@ -198,7 +203,8 @@ describe("execute/client.ts proxy forwarding", () => {
 		);
 
 		const { installDebankClient } = await import("./client.js");
-		await installDebankClient(ctx);
+		const { createExecutionScope } = await import("./scope.js");
+		await installDebankClient(ctx, createExecutionScope());
 
 		const script = await isolate.compileScript(
 			`(async () => { return await debank.chain.getSupportedChainList(); })()`,
@@ -240,7 +246,8 @@ describe("execute/client.ts proxy forwarding", () => {
 		);
 
 		const { installDebankClient } = await import("./client.js");
-		await installDebankClient(ctx);
+		const { createExecutionScope } = await import("./scope.js");
+		await installDebankClient(ctx, createExecutionScope());
 
 		const script = await isolate.compileScript(
 			`(async () => {
@@ -288,7 +295,8 @@ describe("execute/client.ts proxy forwarding", () => {
 		);
 
 		const { installDebankClient } = await import("./client.js");
-		await installDebankClient(ctx);
+		const { createExecutionScope } = await import("./scope.js");
+		await installDebankClient(ctx, createExecutionScope());
 
 		const script = await isolate.compileScript(
 			`(async () => {

@@ -94,6 +94,75 @@ describe("execute integration", () => {
 		expect(inner.error).toContain("DeBank call timed out after 5s");
 	}, 15_000);
 
+	it("guest schema is enforced — limit > .max() rejects before reaching rawFn", async () => {
+		const servicesMod = await import("../../src/services/index.js");
+		const rawSpy = vi
+			.spyOn(
+				servicesMod.protocolService as unknown as {
+					getTopHoldersOfProtocolRaw: (...a: unknown[]) => Promise<unknown>;
+				},
+				"getTopHoldersOfProtocolRaw",
+			)
+			.mockResolvedValue([] as never);
+		try {
+			const res = await executeTool.execute({
+				code: `async function run(d) {
+					try { return await d.protocol.getTopHoldersOfProtocol({ id: "uniswap", limit: 999999 }); }
+					catch (e) { return "err:" + e.message; }
+				}`,
+			});
+			const inner = JSON.parse(res.content[0]?.text);
+			expect(inner.ok).toBe(true);
+			expect(typeof inner.result).toBe("string");
+			expect(inner.result).toContain("Invalid arguments for");
+			expect(inner.result).toContain("debank.protocol.getTopHoldersOfProtocol");
+			expect(rawSpy).not.toHaveBeenCalled();
+		} finally {
+			rawSpy.mockRestore();
+		}
+	});
+
+	it("execute call budget caps fan-out to N upstream calls per invocation", async () => {
+		const prev = process.env.DEBANK_MCP_EXECUTE_BUDGET;
+		process.env.DEBANK_MCP_EXECUTE_BUDGET = "3";
+		const servicesMod = await import("../../src/services/index.js");
+		const rawSpy = vi
+			.spyOn(
+				servicesMod.userService as unknown as {
+					getUserChainBalanceRaw: (...a: unknown[]) => Promise<unknown>;
+				},
+				"getUserChainBalanceRaw",
+			)
+			.mockResolvedValue({ usd_value: 1 } as never);
+		try {
+			const res = await executeTool.execute({
+				code: `async function run(d) {
+					const results = [];
+					for (let i = 0; i < 6; i++) {
+						try { results.push(await d.user.getUserChainBalance({ id: "0xabc", chain_id: "eth" })); }
+						catch (e) { results.push("err:" + e.message); }
+					}
+					return results;
+				}`,
+			});
+			const inner = JSON.parse(res.content[0]?.text);
+			expect(inner.ok).toBe(true);
+			expect(rawSpy).toHaveBeenCalledTimes(3);
+			expect(inner.result.slice(0, 3)).toEqual([
+				{ usd_value: 1 },
+				{ usd_value: 1 },
+				{ usd_value: 1 },
+			]);
+			for (const tail of inner.result.slice(3)) {
+				expect(tail).toContain("Execute call budget exceeded (3 calls");
+			}
+		} finally {
+			if (prev === undefined) delete process.env.DEBANK_MCP_EXECUTE_BUDGET;
+			else process.env.DEBANK_MCP_EXECUTE_BUDGET = prev;
+			rawSpy.mockRestore();
+		}
+	});
+
 	it("execute with debank.resolveChain inside (mocked resolver)", async () => {
 		vi.resetModules();
 		vi.doMock("../../src/lib/entity-resolver.js", async (importOriginal) => {
