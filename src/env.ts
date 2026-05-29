@@ -1,7 +1,9 @@
 import { config } from "dotenv";
 import { z } from "zod";
 
-config();
+// quiet: true suppresses dotenv@17's "[dotenv@17.x.x] injecting env..." stdout
+// banner, which would otherwise corrupt the MCP JSON-RPC stream over stdio.
+config({ quiet: true });
 
 const envSchema = z
 	.object({
