@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import type { SandboxResult } from "./sandbox.js";
+import { cancelScope, createExecutionScope } from "./scope.js";
 
 const PARAMS = z.object({
 	code: z
@@ -27,13 +28,12 @@ export const executeTool = {
 	annotations: { readOnlyHint: false },
 	execute: async (args: z.infer<typeof PARAMS>) => {
 		let sandboxResult: SandboxResult;
-		const { createExecutionScope, cancelScope } = await import("./scope.js");
 		const scope = createExecutionScope();
 		try {
 			const [{ runInSandbox }, { installDebankClient }] = await Promise.all([
 				import("./sandbox.js"),
 				import("./client.js"),
-			]);
+			]); //Both of these use isolated-vm which can fail to load on some platforms, so do them together in a try/catch
 			sandboxResult = await runInSandbox(args.code, (ctx) =>
 				installDebankClient(ctx, scope),
 			);
