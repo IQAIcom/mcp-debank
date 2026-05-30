@@ -1,4 +1,5 @@
 import { chainIds } from "../enums/chains.js";
+import { chainService } from "../services/index.js";
 import type { ChainInfo } from "../types.js";
 import { createChildLogger } from "./utils/index.js";
 
@@ -16,34 +17,20 @@ const WRAPPED_TOKEN_KEYWORDS = [
 ] as const;
 
 /**
- * Aliases that don't show up as exact name matches against DeBank's catalog.
- * DeBank's `chain.name` for BSC is "BNB Chain"; for Polygon it's "Polygon" (so
- * unaliased); for OKExChain it's "OKC". The table covers the user-facing
- * names that don't tokenize the same way.
+ * Aliases for inputs that share zero substring with DeBank's `chain.name` and
+ * so won't resolve via steps 1, 2, or 4 of resolveChain. Anything that exact-
+ * matches an ID/name, or whose name contains the other as a substring, does
+ * NOT belong here — it's already covered. Keep this table small; grow only
+ * when a real user-facing failure surfaces.
  */
 const CHAIN_ALIASES: Record<string, string> = {
 	binance: "bsc",
 	"binance smart chain": "bsc",
-	"bnb chain": "bsc",
-	bnb: "bsc",
-	bsc: "bsc",
-	matic: "matic",
-	polygon: "matic",
 	okexchain: "okt",
 	"okx chain": "okt",
 	"okt chain": "okt",
-	okt: "okt",
-	okc: "okt",
-	gnosis: "xdai",
-	"gnosis chain": "xdai",
-	"huobi eco chain": "heco",
 	huobi: "heco",
-	avalanche: "avax",
-	"avalanche c-chain": "avax",
-	optimism: "op",
-	arbitrum: "arb",
-	"arbitrum one": "arb",
-	ethereum: "eth",
+	"huobi eco chain": "heco",
 };
 
 const CHAIN_LIST_TTL_MS = 24 * 60 * 60 * 1000;
@@ -54,9 +41,6 @@ let chainListCache: { chains: ChainInfo[]; loadedAt: number } | null = null;
  * back to the bundled static catalog so resolution always has SOMETHING to work
  * with — at the cost of possibly missing chains DeBank added since the last
  * package release.
- *
- * Dynamically imports services to keep entity-resolver.ts cheap to load —
- * service singletons get constructed only on first resolveChain call.
  */
 async function getChainList(): Promise<ChainInfo[]> {
 	const now = Date.now();
@@ -64,7 +48,6 @@ async function getChainList(): Promise<ChainInfo[]> {
 		return chainListCache.chains;
 	}
 	try {
-		const { chainService } = await import("../services/index.js");
 		const chains = await chainService.getSupportedChainListRaw();
 		chainListCache = { chains, loadedAt: now };
 		return chains;
