@@ -77,12 +77,20 @@ async function cachedGet<T>(
 	}
 
 	const promise = timed("GET", url, route, fn);
-	getCache.set(key, { expiresAt: now + ttlSeconds * 1000, promise });
+	const entry: CacheEntry<T> = { expiresAt: now + ttlSeconds * 1000, promise };
+	getCache.set(key, entry);
 	// Evict on failure so a transient error doesn't get memoised. Compare by
 	// promise identity in case a later successful fetch already replaced us.
 	promise.catch(() => {
 		if (getCache.get(key)?.promise === promise) getCache.delete(key);
 	});
+	// Evict on TTL expiry so one-off URLs (every unique wallet address, token
+	// id, tx hash) don't accumulate in this map for the life of the process.
+	// `unref` keeps the timer from holding the event loop open at shutdown.
+	const expiryTimer = setTimeout(() => {
+		if (getCache.get(key) === entry) getCache.delete(key);
+	}, ttlSeconds * 1000);
+	expiryTimer.unref?.();
 	return promise;
 }
 

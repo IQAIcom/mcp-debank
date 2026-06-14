@@ -7,11 +7,11 @@ export const INSTRUCTIONS = `# DeBank MCP — Code Mode Operational Guide
 
 These rules are derived from real session telemetry. Ignoring them produces 5 s timeouts and 3-minute round trips for queries that should finish in ~15 s.
 
-1. **NEVER call \`debank.user.getUserAllTokenList\`.** DeBank's upstream cannot serve this endpoint within the 5 s per-call timeout for any active wallet — every attempt cancels at exactly 5000 ms. Use the fan-out pattern in §4a instead. There is no scenario where the all-chains endpoint is the right choice; small wallets are also fast under the fan-out.
+1. **NEVER call \`debank.user.getUserAllTokenList\`.** DeBank's upstream cannot serve this endpoint within the 5 s per-call timeout for any active wallet — every attempt cancels at exactly 5000 ms. Use the fan-out pattern in §4 instead. There is no scenario where the all-chains endpoint is the right choice; small wallets are also fast under the fan-out.
 2. **One \`execute\` call, not many.** The execute scope grants concurrency=10 and budget=100. A query that needs 30 per-chain lookups should issue ONE \`execute\` with \`Promise.all\` across all 30 — not ten executes of three. Every additional \`execute\` invocation costs ~10-30 s of agent thinking time between batches. Wall time is dominated by inter-execute gaps, not API latency.
 3. **Discover with \`getUserTotalBalance\` first, then fan out.** The \`chain_list\` field already tells you which chains hold value — no need to call \`getUsedChainList\` separately, no need to query every chain. Filter to \`chain.usd_value >= 1\` and fan out only to those.
 
-The canonical "all token holdings across chains" template is §4a below. Copy it; don't reinvent it.
+The canonical "all token holdings across chains" template is §4 below. Copy it; don't reinvent it.
 
 ---
 
