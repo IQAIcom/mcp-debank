@@ -58,8 +58,7 @@
 		"shx": "^0.3.4",
 		"tsx": "^4.21.1",
 		"typescript": "^5.9.3",
-		"vitest": "^4.1.6",
-		"zod-to-json-schema": "^3.25.1"
+		"vitest": "^4.1.6"
 	},
 	"engines": {
 		"node": ">=22"
