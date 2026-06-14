@@ -1,69 +1,26 @@
 #!/usr/bin/env -S node --no-node-snapshot
-import { createRequire } from "node:module";
-import { FastMCP } from "fastmcp";
-import { createChildLogger } from "./lib/utils/logger.js";
-import { endpointTools } from "./mcp/endpoints/tools.js";
-import { executeTool } from "./mcp/execute/tool.js";
-import { INSTRUCTIONS } from "./mcp/instructions/instructions.generated.js";
-import { searchDocsTool } from "./mcp/search-docs/tool.js";
-import { dynamicConvenienceTools } from "./mcp/tools.js";
 
-const logger = createChildLogger("DeBank MCP");
+// Thin entry that enforces the Node engine BEFORE any transitive module
+// loads. ESM hoists static imports, so a check in a file that also imports
+// `fastmcp` would run too late — `fastmcp` -> `undici` references the global
+// `File` (Node >= 20), which crashes module evaluation on Node 18 with a
+// `ReferenceError` that obscures the real cause. Keep this file free of
+// static imports from project or runtime-heavy modules.
 
-const require = createRequire(import.meta.url);
+// Keep in sync with engines.node in package.json.
+const REQUIRED_MAJOR = 22;
 
-type SemverString = `${number}.${number}.${number}`;
-function assertSemver(v: string): asserts v is SemverString {
-	if (!/^\d+\.\d+\.\d+$/.test(v)) {
-		throw new Error(
-			`package.json version "${v}" is not a major.minor.patch semver string`,
-		);
-	}
-}
-const { version: rawVersion } = require("../package.json") as {
-	version: string;
-};
-assertSemver(rawVersion);
-const version: SemverString = rawVersion;
+const match = /^v(\d+)\./.exec(process.version);
+const currentMajor = match ? Number(match[1]) : Number.NaN;
 
-function dynamicToolsEnabled(): boolean {
-	if (process.env.DEBANK_MCP_TOOLS === "dynamic") return true;
-	if (process.argv.includes("--tools=dynamic")) return true;
-	return false;
-}
-
-async function main() {
-	const server = new FastMCP({
-		name: "DeBank MCP Server",
-		version,
-		instructions: INSTRUCTIONS,
-	});
-
-	type RegisteredTool = Parameters<typeof server.addTool>[0];
-	const tools: RegisteredTool[] = [
-		executeTool as unknown as RegisteredTool,
-		searchDocsTool as unknown as RegisteredTool,
-	];
-	if (dynamicToolsEnabled()) {
-		tools.push(
-			...(dynamicConvenienceTools as unknown as RegisteredTool[]),
-			...(endpointTools as unknown as RegisteredTool[]),
-		);
-		logger.info(
-			"Dynamic tools enabled (--tools=dynamic or DEBANK_MCP_TOOLS=dynamic)",
-		);
-	}
-	for (const tool of tools) server.addTool(tool);
-
-	try {
-		await server.start({ transportType: "stdio" });
-	} catch (error) {
-		logger.error("Failed to start server", error as Error);
-		process.exit(1);
-	}
-}
-
-main().catch((error) => {
-	logger.error("Unexpected error occurred", error);
+if (!Number.isFinite(currentMajor) || currentMajor < REQUIRED_MAJOR) {
+	process.stderr.write(
+		`[debank-mcp] Node ${process.version} is too old — this server requires Node >= ${REQUIRED_MAJOR}.\n` +
+			`If you're launching from Claude Desktop or another MCP host, set the "command" field to an ` +
+			`absolute path to a Node ${REQUIRED_MAJOR}+ binary (e.g. an nvm v${REQUIRED_MAJOR} path or ` +
+			`/opt/homebrew/bin/node) instead of relying on the host's PATH.\n`,
+	);
 	process.exit(1);
-});
+}
+
+await import("./bootstrap.js");
