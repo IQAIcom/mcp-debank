@@ -57,7 +57,11 @@ async function timed<T>(
 //      value without crossing the gateway hop. Layered on top of the IQ
 //      Gateway's own cache — short-circuits the network entirely on hits.
 // Only GET is cached; POST changes state and is never memoised.
-type CacheEntry<T = unknown> = { expiresAt: number; promise: Promise<T> };
+type CacheEntry<T = unknown> = {
+	expiresAt: number;
+	promise: Promise<T>;
+	timer: NodeJS.Timeout;
+};
 const getCache = new Map<string, CacheEntry>();
 
 async function cachedGet<T>(
@@ -75,22 +79,31 @@ async function cachedGet<T>(
 		apiLogger.info(`op=GET route=${route} path=${pathOf(url)} cache=hit`);
 		return existing.promise;
 	}
+	// Expired entry about to be replaced — clear its pending timer to keep the
+	// Node timer wheel clean on high-churn URLs.
+	if (existing) clearTimeout(existing.timer);
 
 	const promise = timed("GET", url, route, fn);
-	const entry: CacheEntry<T> = { expiresAt: now + ttlSeconds * 1000, promise };
-	getCache.set(key, entry);
-	// Evict on failure so a transient error doesn't get memoised. Compare by
-	// promise identity in case a later successful fetch already replaced us.
-	promise.catch(() => {
-		if (getCache.get(key)?.promise === promise) getCache.delete(key);
-	});
-	// Evict on TTL expiry so one-off URLs (every unique wallet address, token
-	// id, tx hash) don't accumulate in this map for the life of the process.
-	// `unref` keeps the timer from holding the event loop open at shutdown.
-	const expiryTimer = setTimeout(() => {
+	const timer = setTimeout(() => {
 		if (getCache.get(key) === entry) getCache.delete(key);
 	}, ttlSeconds * 1000);
-	expiryTimer.unref?.();
+	timer.unref?.();
+	const entry: CacheEntry<T> = {
+		expiresAt: now + ttlSeconds * 1000,
+		promise,
+		timer,
+	};
+	getCache.set(key, entry);
+	// Evict on failure so a transient error doesn't get memoised, and cancel
+	// the expiry timer so it doesn't sit in the wheel until TTL just to no-op.
+	// Identity-compare in case a later successful fetch already replaced us.
+	promise.catch(() => {
+		const current = getCache.get(key);
+		if (current?.promise === promise) {
+			clearTimeout(current.timer);
+			getCache.delete(key);
+		}
+	});
 	return promise;
 }
 
