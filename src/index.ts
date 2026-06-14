@@ -24,5 +24,18 @@ if (!Number.isFinite(currentMajor) || currentMajor < REQUIRED_MAJOR) {
 	);
 	process.exitCode = 1;
 } else {
-	await import("./bootstrap.js");
+	try {
+		await import("./bootstrap.js");
+	} catch (error) {
+		// Surface bootstrap evaluation failures (e.g. corrupt package.json,
+		// fastmcp ABI break) with the same `[debank-mcp]` prefix so MCP host
+		// logs are actionable instead of dumping an internal Node stack.
+		process.stderr.write(
+			`[debank-mcp] Failed to load bootstrap module: ${
+				error instanceof Error ? (error.stack ?? error.message) : String(error)
+			}\n`,
+		);
+		process.exitCode = 1;
+		setImmediate(() => process.exit(1));
+	}
 }
