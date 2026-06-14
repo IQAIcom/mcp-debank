@@ -288,12 +288,23 @@ export class UserService extends BaseService {
 				.filter((c) => c.usd_value >= minUsdValue)
 				.map((c) => c.id);
 			if (targetChains.length === 0) return [];
+			// Per-chain `.catch` so a single chain's transient failure (rate
+			// limit, 5xx, axios timeout, etc.) doesn't fail the whole aggregate
+			// — the user gets the chains that succeeded. Abort errors are still
+			// propagated so cancellation is honoured for the whole batch.
 			const lists = await Promise.all(
 				targetChains.map((chain_id) =>
 					this.getUserTokenListRaw(
 						{ id: args.id, chain_id, is_all: args.is_all },
 						options,
-					),
+					).catch((err) => {
+						if (options?.signal?.aborted) throw err;
+						logger.warn(
+							`Skipping chain ${chain_id} for user ${args.id} due to upstream error`,
+							err as Error,
+						);
+						return [] as UserTokenBalance[];
+					}),
 				),
 			);
 			return lists.flat();

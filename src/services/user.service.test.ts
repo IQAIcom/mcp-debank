@@ -141,6 +141,78 @@ describe("userService.getUserTokensAcrossChainsRaw", () => {
 		expect(tokenListSpy).not.toHaveBeenCalled();
 	});
 
+	it("returns partial results when a single chain's fetch fails", async () => {
+		vi.spyOn(userService, "getUserTotalBalanceRaw").mockResolvedValue({
+			total_usd_value: 100,
+			chain_list: [
+				{
+					id: "eth",
+					community_id: 1,
+					name: "Ethereum",
+					logo_url: "",
+					native_token_id: "eth",
+					wrapped_token_id: "",
+					usd_value: 60,
+				},
+				{
+					id: "bsc",
+					community_id: 56,
+					name: "BNB",
+					logo_url: "",
+					native_token_id: "bnb",
+					wrapped_token_id: "",
+					usd_value: 40,
+				},
+			],
+		});
+		vi.spyOn(userService, "getUserTokenListRaw").mockImplementation(
+			async (args) => {
+				if (args.chain_id === "eth") return [token("USDC", "eth", 50, 1)];
+				throw new Error("DeBank 503 on bsc");
+			},
+		);
+
+		const result = await userService.getUserTokensAcrossChainsRaw({
+			id: WALLET,
+		});
+
+		// The eth tokens still come back even though bsc threw; the aggregate
+		// degrades to "best effort" rather than rejecting the whole call.
+		expect(result.map((t) => t.symbol)).toEqual(["USDC"]);
+	});
+
+	it("propagates abort even when a per-chain rejection happens after the signal aborts", async () => {
+		const controller = new AbortController();
+		vi.spyOn(userService, "getUserTotalBalanceRaw").mockResolvedValue({
+			total_usd_value: 100,
+			chain_list: [
+				{
+					id: "eth",
+					community_id: 1,
+					name: "Ethereum",
+					logo_url: "",
+					native_token_id: "eth",
+					wrapped_token_id: "",
+					usd_value: 100,
+				},
+			],
+		});
+		vi.spyOn(userService, "getUserTokenListRaw").mockImplementation(
+			async () => {
+				// Simulate the abort firing mid-chain-call.
+				controller.abort();
+				throw new DOMException("Aborted", "AbortError");
+			},
+		);
+
+		await expect(
+			userService.getUserTokensAcrossChainsRaw(
+				{ id: WALLET },
+				{ signal: controller.signal },
+			),
+		).rejects.toMatchObject({ name: "AbortError" });
+	});
+
 	it("rejects with AbortError without firing any upstream call when signal is pre-aborted", async () => {
 		const balanceSpy = vi.spyOn(userService, "getUserTotalBalanceRaw");
 		const tokenListSpy = vi.spyOn(userService, "getUserTokenListRaw");
