@@ -57,6 +57,13 @@ async function timed<T>(
 //      value without crossing the gateway hop. Layered on top of the IQ
 //      Gateway's own cache — short-circuits the network entirely on hits.
 // Only GET is cached; POST changes state and is never memoised.
+//
+// Known limitation (tracked for the upcoming server-side-aggregate PR): the
+// underlying fetch inherits the AbortSignal of whichever caller arrived first.
+// If a coalesced peer aborts first, the shared fetch aborts and every other
+// coalesced caller fails too. In practice this requires two concurrent guest
+// calls for the same URL within ~5 s where the first one's execute scope
+// times out — narrow window, but a real correctness gap.
 type CacheEntry<T = unknown> = {
 	expiresAt: number;
 	promise: Promise<T>;
@@ -84,16 +91,19 @@ async function cachedGet<T>(
 	if (existing) clearTimeout(existing.timer);
 
 	const promise = timed("GET", url, route, fn);
+	// Compare by `promise` identity inside the timer callback (not by entry
+	// reference) so we don't need a forward declaration. Functionally
+	// equivalent: a replaced entry has a different promise; a deleted entry
+	// has no promise at all; both cases return false and skip the delete.
 	const timer = setTimeout(() => {
-		if (getCache.get(key) === entry) getCache.delete(key);
+		if (getCache.get(key)?.promise === promise) getCache.delete(key);
 	}, ttlSeconds * 1000);
 	timer.unref?.();
-	const entry: CacheEntry<T> = {
+	getCache.set(key, {
 		expiresAt: now + ttlSeconds * 1000,
 		promise,
 		timer,
-	};
-	getCache.set(key, entry);
+	});
 	// Evict on failure so a transient error doesn't get memoised, and cancel
 	// the expiry timer so it doesn't sit in the wheel until TTL just to no-op.
 	// Identity-compare in case a later successful fetch already replaced us.
