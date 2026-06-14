@@ -123,7 +123,20 @@ describe("BaseService RequestOptions forwarding — direct path", () => {
 			signal: controller.signal,
 		});
 		controller.abort();
-		await expect(p).rejects.toThrow(/aborted/i);
+		// Default reason for a bare controller.abort() is a DOMException
+		// whose name is "AbortError" — what axios/fetch/retry libs check.
+		await expect(p).rejects.toMatchObject({ name: "AbortError" });
+	});
+
+	it("caller abort preserves signal.reason when provided", async () => {
+		const controller = new AbortController();
+		getSpy.mockReturnValueOnce(new Promise(() => {}) as never);
+		const customReason = new Error("custom reason from caller");
+		const p = svc.fetchDefaultTTL("https://example.test/abort-reason", {
+			signal: controller.signal,
+		});
+		controller.abort(customReason);
+		await expect(p).rejects.toBe(customReason);
 	});
 
 	it("postWithToolConfig forwards signal + timeout to axios.post", async () => {

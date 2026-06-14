@@ -79,8 +79,15 @@ type CacheEntry<T = unknown> = {
 };
 const getCache = new Map<string, CacheEntry>();
 
-function abortedReason(): Error {
-	return new Error("Request aborted by caller");
+// Match the standard AbortController contract: prefer signal.reason
+// (set when the caller invokes controller.abort(reason)), and fall back to a
+// DOMException named "AbortError" so downstream checks like
+// `error.name === "AbortError"` (axios, fetch, retry libs) still discriminate.
+function abortedReason(signal: AbortSignal): unknown {
+	return (
+		signal.reason ??
+		new DOMException("This operation was aborted", "AbortError")
+	);
 }
 
 // Wrap a shared promise so a per-caller AbortSignal can reject the caller's
@@ -90,9 +97,9 @@ function raceWithSignal<T>(
 	signal: AbortSignal | undefined,
 ): Promise<T> {
 	if (!signal) return shared;
-	if (signal.aborted) return Promise.reject(abortedReason());
+	if (signal.aborted) return Promise.reject(abortedReason(signal));
 	return new Promise<T>((resolve, reject) => {
-		const onAbort = () => reject(abortedReason());
+		const onAbort = () => reject(abortedReason(signal));
 		signal.addEventListener("abort", onAbort, { once: true });
 		shared.then(
 			(v) => {
