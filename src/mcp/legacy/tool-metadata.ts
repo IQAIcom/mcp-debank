@@ -688,7 +688,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 		qualified: "debank.user.getUserTokenAuthorizedList",
 		sandboxImpl: lazyMethod("userService", "getUserTokenAuthorizedListRaw"),
 		description:
-			"Fetch a list of tokens for which a user has granted spending approvals on a specified chain. Returns details about each approval including amount, spender address, and associated protocol information. Useful for security audits.",
+			"Fetch all ERC-20 token approvals a user has granted on a specified chain. Returns an array of token entries — each entry carries the token's identity fields (id, symbol, decimals, amount, price, ...) plus a `spenders[]` array listing every address authorised to spend that token. Each spender includes the address, protocol metadata if known, approved value (in token units, already scaled by `decimals`), risk classification, and last approval timestamp. Useful for security audits — filter `spenders` by `risk_level` or unbounded `value` to surface revocation candidates.",
 		parameters: z.object({
 			id: z.string().describe("The user's wallet address."),
 			chain_id: z
@@ -706,7 +706,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 		qualified: "debank.user.getUserNftAuthorizedList",
 		sandboxImpl: lazyMethod("userService", "getUserNftAuthorizedListRaw"),
 		description:
-			"Retrieve a list of NFTs for which a user has given spending permissions on a specified chain. Returns details including contract IDs, names, symbols, spender addresses, and approved amounts for ERC1155 tokens. Important for security reviews.",
+			"Retrieve NFT spending approvals a user has granted on a specified chain. Returns a wrapper object `{ total, contracts, tokens }` — NOT a flat array. `contracts[]` lists collection-level approvals (one entry per collection × spender pair, with full `collection` metadata and a single `spender`). `tokens[]` lists per-NFT approvals (individual ERC721/ERC1155 tokens with per-spender details). `total` is a stringified count. Important for security reviews.",
 		parameters: z.object({
 			id: z.string().describe("The user's wallet address."),
 			chain_id: z

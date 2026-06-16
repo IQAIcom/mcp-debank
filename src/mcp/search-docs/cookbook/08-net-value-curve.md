@@ -1,13 +1,10 @@
 # Get 24h net value curve
 
-Returns the net-worth time series for a wallet over the past 24 hours. The response is a wrapper object — you must access `.usd_value_list` to get the actual array of data points. Forgetting to unwrap is a common mistake.
+Returns the net-worth time series for a wallet over the past 24 hours. The response is a flat array of `{ timestamp, usd_value }` data points — no unwrap step.
 
 ```js
 async function run(debank) {
-  const wrapper = await debank.user.getUserTotalNetCurve({ id: "0xWALLET" });
-
-  // IMPORTANT: unwrap the response — the data lives at .usd_value_list
-  const points = wrapper.usd_value_list;
+  const points = await debank.user.getUserTotalNetCurve({ id: "0xWALLET" });
 
   // Each point: { timestamp: number, usd_value: number }
   const last7 = points.slice(-7);

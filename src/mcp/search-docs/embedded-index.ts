@@ -747,7 +747,7 @@ export const ENTRIES: IndexEntry[] = [
 		name: "debank_get_user_token_authorized_list",
 		qualified: "debank.user.getUserTokenAuthorizedList",
 		description:
-			"Fetch a list of tokens for which a user has granted spending approvals on a specified chain. Returns details about each approval including amount, spender address, and associated protocol information. Useful for security audits.",
+			"Fetch all ERC-20 token approvals a user has granted on a specified chain. Returns an array of token entries — each entry carries the token's identity fields (id, symbol, decimals, amount, price, ...) plus a `spenders[]` array listing every address authorised to spend that token. Each spender includes the address, protocol metadata if known, approved value (in token units, already scaled by `decimals`), risk classification, and last approval timestamp. Useful for security audits — filter `spenders` by `risk_level` or unbounded `value` to surface revocation candidates.",
 		params: {
 			$schema: "https://json-schema.org/draft/2020-12/schema",
 			type: "object",
@@ -773,7 +773,7 @@ export const ENTRIES: IndexEntry[] = [
 		name: "debank_get_user_nft_authorized_list",
 		qualified: "debank.user.getUserNftAuthorizedList",
 		description:
-			"Retrieve a list of NFTs for which a user has given spending permissions on a specified chain. Returns details including contract IDs, names, symbols, spender addresses, and approved amounts for ERC1155 tokens. Important for security reviews.",
+			"Retrieve NFT spending approvals a user has granted on a specified chain. Returns a wrapper object `{ total, contracts, tokens }` — NOT a flat array. `contracts[]` lists collection-level approvals (one entry per collection × spender pair, with full `collection` metadata and a single `spender`). `tokens[]` lists per-NFT approvals (individual ERC721/ERC1155 tokens with per-spender details). `total` is a stringified count. Important for security reviews.",
 		params: {
 			$schema: "https://json-schema.org/draft/2020-12/schema",
 			type: "object",
@@ -961,7 +961,7 @@ export const ENTRIES: IndexEntry[] = [
 		id: "cookbook:04-token-approvals-audit.md",
 		title: "Find risky token approvals",
 		content:
-			'# Find risky token approvals\n\nRetrieves all ERC-20 token approvals a wallet has granted across every chain it has interacted with. Use this to surface unlimited or unusually large approvals that could be revoked to reduce attack surface.\n\nNote: the v0.1 service signature accepts `{id}` only — there is no `chain_id` filter. The method internally queries approvals on every chain the wallet has activity on.\n\n```js\nasync function run(debank) {\n  const approvals = await debank.user.getUserTokenAuthorizedList({ id: "0xWALLET" });\n  // Filter to unlimited or very large approvals\n  const risky = approvals.filter(\n    (a) => a.value === "unlimited" || Number(a.value) > 1e20,\n  );\n  return risky.map((a) => ({\n    chain: a.chain,\n    token: a.symbol,\n    spender: a.spender_list?.[0]?.id,\n    value: a.value,\n  }));\n}\n```\n',
+			'# Find risky token approvals\n\nRetrieves all ERC-20 token approvals a wallet has granted on a single chain. Use this to surface unlimited or unusually large approvals that could be revoked to reduce attack surface.\n\n`chain_id` is **required** by DeBank\'s upstream — calling without it returns `"ChainID Missing required parameter in the query string"`. Each response entry is a token (with its identity fields like `symbol`, `decimals`, `amount`) plus a `spenders[]` array — one entry per address authorised to spend that token.\n\nThe `value` on a spender is the approved amount in token units (already scaled by the token\'s `decimals`). Unlimited approvals appear as `~1.16e(77 − decimals)` — e.g. `~1.16e59` for an 18-decimal ERC20, `~1.16e71` for 6-decimal USDC. The `1e20` threshold catches every common decimal count without false positives on legitimately large approvals. The raw uint256 (if needed) lives on the token at `t.raw_amount` / `t.raw_amount_hex_str`.\n\n```js\nasync function run(debank) {\n  const approvals = await debank.user.getUserTokenAuthorizedList({\n    id: "0xWALLET",\n    chain_id: "eth",\n  });\n\n  return approvals.flatMap((t) =>\n    t.spenders\n      .filter((s) => s.value > 1e20)\n      .map((s) => ({\n        chain: t.chain,\n        token: t.symbol,\n        spender: s.id,\n        protocol: s.protocol?.name ?? null,\n        risk: s.risk_level,\n        last_approved_at: s.last_approve_at,\n      })),\n  );\n}\n```\n',
 	},
 	{
 		kind: "prose",
@@ -989,7 +989,7 @@ export const ENTRIES: IndexEntry[] = [
 		id: "cookbook:08-net-value-curve.md",
 		title: "Get 24h net value curve",
 		content:
-			'# Get 24h net value curve\n\nReturns the net-worth time series for a wallet over the past 24 hours. The response is a wrapper object — you must access `.usd_value_list` to get the actual array of data points. Forgetting to unwrap is a common mistake.\n\n```js\nasync function run(debank) {\n  const wrapper = await debank.user.getUserTotalNetCurve({ id: "0xWALLET" });\n\n  // IMPORTANT: unwrap the response — the data lives at .usd_value_list\n  const points = wrapper.usd_value_list;\n\n  // Each point: { timestamp: number, usd_value: number }\n  const last7 = points.slice(-7);\n  const latest = last7[last7.length - 1];\n  const earliest = last7[0];\n  const changePct =\n    earliest.usd_value > 0\n      ? ((latest.usd_value - earliest.usd_value) / earliest.usd_value) * 100\n      : 0;\n\n  return { last7, changePct: changePct.toFixed(2) };\n}\n```\n',
+			'# Get 24h net value curve\n\nReturns the net-worth time series for a wallet over the past 24 hours. The response is a flat array of `{ timestamp, usd_value }` data points — no unwrap step.\n\n```js\nasync function run(debank) {\n  const points = await debank.user.getUserTotalNetCurve({ id: "0xWALLET" });\n\n  // Each point: { timestamp: number, usd_value: number }\n  const last7 = points.slice(-7);\n  const latest = last7[last7.length - 1];\n  const earliest = last7[0];\n  const changePct =\n    earliest.usd_value > 0\n      ? ((latest.usd_value - earliest.usd_value) / earliest.usd_value) * 100\n      : 0;\n\n  return { last7, changePct: changePct.toFixed(2) };\n}\n```\n',
 	},
 	{
 		kind: "prose",

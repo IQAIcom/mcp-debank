@@ -466,36 +466,36 @@ export class UserService extends BaseService {
 	}
 
 	async getUserTokenAuthorizedListRaw(
-		args: { id: string },
+		args: { id: string; chain_id: string },
 		options?: RequestOptions,
 	): Promise<TokenAuthorization[]> {
 		try {
 			return await this.fetchWithToolConfig<TokenAuthorization[]>(
-				`${this.baseUrl}/user/token_authorized_list?id=${args.id}`,
+				`${this.baseUrl}/user/token_authorized_list?id=${args.id}&chain_id=${args.chain_id}`,
 				this.DEFAULT_CACHE_TTL_SECONDS,
 				options,
 			);
 		} catch (error) {
 			throw logAndWrapError(
-				`Failed to fetch token authorizations for user ${args.id}`,
+				`Failed to fetch token authorizations for user ${args.id} on chain ${args.chain_id}`,
 				error,
 			);
 		}
 	}
 
 	async getUserNftAuthorizedListRaw(
-		args: { id: string },
+		args: { id: string; chain_id: string },
 		options?: RequestOptions,
-	): Promise<NFTAuthorization[]> {
+	): Promise<NFTAuthorization> {
 		try {
-			return await this.fetchWithToolConfig<NFTAuthorization[]>(
-				`${this.baseUrl}/user/nft_authorized_list?id=${args.id}`,
+			return await this.fetchWithToolConfig<NFTAuthorization>(
+				`${this.baseUrl}/user/nft_authorized_list?id=${args.id}&chain_id=${args.chain_id}`,
 				this.DEFAULT_CACHE_TTL_SECONDS,
 				options,
 			);
 		} catch (error) {
 			throw logAndWrapError(
-				`Failed to fetch NFT authorizations for user ${args.id}`,
+				`Failed to fetch NFT authorizations for user ${args.id} on chain ${args.chain_id}`,
 				error,
 			);
 		}
@@ -540,14 +540,16 @@ export class UserService extends BaseService {
 	async getUserTotalNetCurveRaw(
 		args: { id: string; chain_ids?: string },
 		options?: RequestOptions,
-	): Promise<{ usd_value_list: NetCurvePoint[] }> {
+	): Promise<NetCurvePoint[]> {
 		try {
 			const url = args.chain_ids
 				? `${this.baseUrl}/user/total_net_curve?id=${args.id}&chain_ids=${args.chain_ids}`
 				: `${this.baseUrl}/user/total_net_curve?id=${args.id}`;
-			return await this.fetchWithToolConfig<{
-				usd_value_list: NetCurvePoint[];
-			}>(url, this.DEFAULT_CACHE_TTL_SECONDS, options);
+			return await this.fetchWithToolConfig<NetCurvePoint[]>(
+				url,
+				this.DEFAULT_CACHE_TTL_SECONDS,
+				options,
+			);
 		} catch (error) {
 			const context = args.chain_ids
 				? `Failed to fetch total net curve for user ${args.id} on chains ${args.chain_ids}`
