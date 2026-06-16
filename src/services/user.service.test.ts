@@ -573,8 +573,10 @@ describe("response schemas validate against realistic fixtures", () => {
 	});
 
 	it("UserTokenAuthorizedListSchema accepts nullable risk flags (is_scam, is_suspicious null)", () => {
-		// Strip-mode would have rejected this in the previous schema; nullable
-		// risk fields are the consistency fix from review finding #4.
+		// The previous non-nullable boolean typing on `is_scam`/`is_suspicious`
+		// would have rejected this fixture. Widened to `boolean | null` for
+		// consistency with sibling risk fields (`is_hacked`, `is_abandoned`,
+		// `is_open_source`, `is_verified`).
 		const fixture = [
 			{
 				id: "0xtest",
@@ -707,7 +709,7 @@ describe("response schemas validate against realistic fixtures", () => {
 		expect(result.success).toBe(true);
 	});
 
-	it("passthrough lets DeBank add new fields without breaking the schema", () => {
+	it("passthrough preserves unknown fields in the parsed output (not just no-rejection)", () => {
 		// A future field DeBank might add to a spender entry — must not fail.
 		const fixture = [
 			{
@@ -763,5 +765,18 @@ describe("response schemas validate against realistic fixtures", () => {
 		];
 		const result = UserTokenAuthorizedListSchema.safeParse(fixture);
 		expect(result.success).toBe(true);
+		// Strip mode would still produce success=true here, but the unknown
+		// fields would be dropped from `result.data`. Asserting their presence
+		// in the output is what actually guards against a future revert to
+		// strip mode — that's the regression this test exists to catch.
+		if (result.success) {
+			const entry = result.data[0] as Record<string, unknown> & {
+				spenders: Array<Record<string, unknown>>;
+			};
+			expect(entry.newly_added_pricing_field).toBe("anything");
+			expect(entry.spenders[0]?.future_field_we_dont_know_about).toEqual({
+				nested: 42,
+			});
+		}
 	});
 });

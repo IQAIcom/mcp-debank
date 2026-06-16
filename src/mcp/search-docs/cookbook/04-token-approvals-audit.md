@@ -6,8 +6,6 @@ Retrieves all ERC-20 token approvals a wallet has granted on a single chain. Use
 
 The `value` on a spender is the approved amount in token units (already scaled by the token's `decimals`). Unlimited approvals appear as `~1.16e(77 − decimals)` — e.g. `~1.16e59` for an 18-decimal ERC20, `~1.16e71` for 6-decimal USDC. The `1e20` threshold catches every common decimal count without false positives on legitimately large approvals. The raw uint256 (if needed) lives on the token at `t.raw_amount` / `t.raw_amount_hex_str`.
 
-For a multi-chain audit, fan out per-chain in one `Promise.all` (same pattern as the token-holdings recipe).
-
 ```js
 async function run(debank) {
   const approvals = await debank.user.getUserTokenAuthorizedList({
