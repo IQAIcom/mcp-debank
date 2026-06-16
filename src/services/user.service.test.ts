@@ -332,3 +332,123 @@ describe("userService.getUserTokensAcrossChainsRaw", () => {
 		expect(tokenListSpy).not.toHaveBeenCalled();
 	});
 });
+
+/**
+ * Regression tests for endpoint contract drift:
+ *   1. /user/total_net_curve returns a bare array (not the previously-typed wrapper).
+ *   2. /user/token_authorized_list & /user/nft_authorized_list require chain_id —
+ *      previously the service dropped it and DeBank rejected with "ChainID Missing".
+ *   3. /user/nft_authorized_list returns a { total, contracts, tokens } wrapper,
+ *      not a bare array as the old schema claimed.
+ *
+ * These tests spy on the protected `fetchWithToolConfig` to assert (a) the
+ * exact URL string the service constructs and (b) that the upstream payload
+ * passes through without unwrapping.
+ */
+describe("userService — endpoint contract regression tests", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	function spyFetch<T>(response: T) {
+		return vi
+			.spyOn(
+				userService as unknown as {
+					fetchWithToolConfig: (...a: unknown[]) => Promise<unknown>;
+				},
+				"fetchWithToolConfig",
+			)
+			.mockResolvedValue(response as never);
+	}
+
+	it("getUserTotalNetCurve returns the upstream array as-is (no .usd_value_list unwrap)", async () => {
+		const upstream = [
+			{ timestamp: 1781520900, usd_value: 428753.72 },
+			{ timestamp: 1781521200, usd_value: 428901.5 },
+		];
+		const spy = spyFetch(upstream);
+
+		const result = await userService.getUserTotalNetCurveRaw({ id: WALLET });
+
+		expect(Array.isArray(result)).toBe(true);
+		expect(result).toHaveLength(2);
+		expect(result[0]).toEqual({
+			timestamp: 1781520900,
+			usd_value: 428753.72,
+		});
+		const url = spy.mock.calls[0]?.[0] as string;
+		expect(url).toContain("/user/total_net_curve");
+		expect(url).toContain(`id=${WALLET}`);
+	});
+
+	it("getUserTokenAuthorizedList forwards chain_id into the URL query string", async () => {
+		const spy = spyFetch([]);
+
+		await userService.getUserTokenAuthorizedListRaw({
+			id: WALLET,
+			chain_id: "eth",
+		});
+
+		const url = spy.mock.calls[0]?.[0] as string;
+		expect(url).toContain("/user/token_authorized_list");
+		expect(url).toContain(`id=${WALLET}`);
+		// Previous bug dropped chain_id → DeBank rejected with
+		// "ChainID Missing required parameter".
+		expect(url).toContain("chain_id=eth");
+	});
+
+	it("getUserNftAuthorizedList forwards chain_id and passes the wrapper through unchanged", async () => {
+		const upstream = {
+			total: "8",
+			contracts: [
+				{
+					chain: "eth",
+					contract_name: "Test Collection",
+					contract_id: "0xabc",
+					is_erc721: true,
+					collection: {
+						id: "0xabc",
+						chain: "eth",
+						name: "Test Collection",
+						description: null,
+						logo_url: "",
+						is_verified: null,
+						is_suspicious: null,
+						is_core: true,
+						is_scam: false,
+						floor_price: 0.01,
+						credit_score: null,
+					},
+					amount: "1",
+					spender: {
+						id: "0xdef",
+						protocol: null,
+						last_approve_at: 1700000000,
+						risk_level: "safe",
+						risk_alert: "",
+						exposure_nft_usd_value: null,
+						spend_nft_usd_value: null,
+						approve_user_count: 1,
+						revoke_user_count: 0,
+					},
+				},
+			],
+			tokens: [],
+		};
+		const spy = spyFetch(upstream);
+
+		const result = await userService.getUserNftAuthorizedListRaw({
+			id: WALLET,
+			chain_id: "eth",
+		});
+
+		const url = spy.mock.calls[0]?.[0] as string;
+		expect(url).toContain("/user/nft_authorized_list");
+		expect(url).toContain("chain_id=eth");
+		// Wrapper shape: { total, contracts, tokens } — not a bare array.
+		expect(Array.isArray(result)).toBe(false);
+		expect(result.total).toBe("8");
+		expect(result.contracts).toHaveLength(1);
+		expect(result.tokens).toEqual([]);
+	});
+});

@@ -275,39 +275,159 @@ export type UserHistoryItem = {
 };
 
 /**
- * User token authorization
+ * One spender attached to a token approval. The DeBank API attaches a list
+ * of these to each authorized token (not a single spender). Risk fields are
+ * sometimes null while DeBank's classifier catches up — keep them nullable.
  */
-export type TokenAuthorization = {
-	spender: {
-		id: string;
-		protocol: {
-			id: string;
-			chain: string;
-			name: string;
-			logo_url: string;
-		};
-	};
+export type TokenSpender = {
+	id: string;
 	value: number;
-	token: TokenInfo;
+	exposure_usd: number;
+	last_approve_at: number;
+	protocol: {
+		id: string;
+		name: string;
+		logo_url: string;
+		chain: string;
+	} | null;
+	spend_usd_value: number;
+	exposure_usd_value: number;
+	approve_user_count: number;
+	revoke_user_count: number;
+	is_contract: boolean;
+	is_hacked: boolean | null;
+	is_abandoned: boolean | null;
+	is_open_source: boolean | null;
+	risk_level: string;
+	risk_alert: string;
 	[key: string]: unknown;
 };
 
 /**
- * User NFT authorization
+ * User token authorization — one entry per approved token. Inherits the
+ * token's identity fields (id, chain, symbol, decimals, amount, price, …)
+ * and adds a `spenders` array listing every address authorised to spend it.
+ */
+export type TokenAuthorization = {
+	id: string;
+	chain: string;
+	name: string;
+	symbol: string;
+	display_symbol: string | null;
+	optimized_symbol: string;
+	decimals: number;
+	logo_url: string;
+	protocol_id: string;
+	price: number;
+	price_24h_change: number | null;
+	credit_score: number | null;
+	total_supply: number | null;
+	is_verified: boolean;
+	is_core: boolean;
+	is_wallet: boolean;
+	is_scam: boolean;
+	is_suspicious: boolean;
+	time_at: number | null;
+	amount: number;
+	raw_amount: number;
+	raw_amount_hex_str: string;
+	balance: number;
+	spenders: TokenSpender[];
+	sum_exposure_usd: number | null;
+	exposure_balance: number;
+	[key: string]: unknown;
+};
+
+/**
+ * Shared between NFT contract-level approvals and per-token approvals.
+ */
+export type NFTSpender = {
+	id: string;
+	protocol: {
+		id: string;
+		name: string;
+		logo_url: string;
+		chain: string;
+	} | null;
+	last_approve_at: number;
+	risk_level: string;
+	risk_alert: string;
+	exposure_nft_usd_value: number | null;
+	spend_nft_usd_value: number | null;
+	approve_user_count: number;
+	revoke_user_count: number;
+	[key: string]: unknown;
+};
+
+/**
+ * Collection info attached to NFT approvals.
+ */
+export type NFTApprovalCollection = {
+	id: string;
+	chain?: string;
+	chain_id?: string;
+	name: string;
+	description: string | null;
+	logo_url: string;
+	is_verified: boolean | null;
+	is_suspicious: boolean | null;
+	is_core: boolean;
+	is_scam: boolean;
+	floor_price: number | null;
+	credit_score: number | null;
+	[key: string]: unknown;
+};
+
+/**
+ * One entry in the `contracts[]` array — a collection-wide approval.
+ */
+export type NFTContractApproval = {
+	chain: string;
+	contract_name: string;
+	contract_id: string;
+	is_erc721: boolean;
+	collection: NFTApprovalCollection;
+	amount: string;
+	spender: NFTSpender;
+	[key: string]: unknown;
+};
+
+/**
+ * One entry in the `tokens[]` array — a per-NFT approval.
+ */
+export type NFTTokenApproval = {
+	id: string;
+	contract_id: string;
+	inner_id: string;
+	chain: string;
+	symbol: string;
+	name: string;
+	description: string | null;
+	content_type: string | null;
+	content: string;
+	thumbnail_url: string;
+	total_supply: number;
+	attributes: unknown[];
+	detail_url: string;
+	collection_id: string;
+	is_erc1155: boolean;
+	is_erc721: boolean;
+	pay_token: unknown | null;
+	collection: NFTApprovalCollection;
+	contract_name: string;
+	amount: string;
+	spender: NFTSpender;
+	[key: string]: unknown;
+};
+
+/**
+ * Real shape of `/user/nft_authorized_list` — a wrapper with two distinct
+ * arrays for collection-level and per-token approvals, plus a count.
  */
 export type NFTAuthorization = {
-	contract_id: string;
-	contract_name: string;
-	contract_protocol_id: string;
-	contract_protocol_logo_url: string;
-	spender: string;
-	spender_protocol_id: string;
-	spender_protocol_name: string;
-	spender_protocol_logo_url: string;
-	is_erc721: boolean;
-	amount?: number;
-	nft_list?: UserNFT[];
-	[key: string]: unknown;
+	total: string;
+	contracts: NFTContractApproval[];
+	tokens: NFTTokenApproval[];
 };
 
 /**

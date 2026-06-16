@@ -347,39 +347,169 @@ export const UserHistoryListSchema = z.array(UserHistoryItemSchema);
 /** debank.user.getUserAllHistoryList */
 export const UserAllHistoryListSchema = z.array(UserHistoryItemSchema);
 
-const TokenAuthorizationSchema = z.object({
-	spender: z.object({
-		id: z.string().describe("Spender contract address."),
-		protocol: z.object({
+const TokenSpenderSchema = z.object({
+	id: z.string().describe("Spender contract address."),
+	value: z
+		.number()
+		.describe("Approved amount (raw token units, often unbounded)."),
+	exposure_usd: z
+		.number()
+		.describe("USD value currently exposed to this spender."),
+	last_approve_at: z
+		.number()
+		.describe("Unix timestamp of the most recent approve transaction."),
+	protocol: z
+		.object({
 			id: z.string(),
-			chain: z.string(),
 			name: z.string(),
 			logo_url: z.string(),
-		}),
-	}),
-	value: z.number().describe("Approved token amount."),
-	token: TokenInfoSchema,
+			chain: z.string(),
+		})
+		.nullable()
+		.describe(
+			"Protocol metadata if the spender is a known DeFi contract; null for raw EOAs / unknown spenders.",
+		),
+	spend_usd_value: z.number(),
+	exposure_usd_value: z.number(),
+	approve_user_count: z.number().int(),
+	revoke_user_count: z.number().int(),
+	is_contract: z.boolean(),
+	is_hacked: z.boolean().nullable(),
+	is_abandoned: z.boolean().nullable(),
+	is_open_source: z.boolean().nullable(),
+	risk_level: z
+		.string()
+		.describe(
+			"Spender risk classification (e.g. 'safe', 'caution', 'danger').",
+		),
+	risk_alert: z.string(),
+});
+
+const TokenAuthorizationSchema = z.object({
+	id: z.string().describe("Token contract address."),
+	chain: z.string(),
+	name: z.string(),
+	symbol: z.string(),
+	display_symbol: z.string().nullable(),
+	optimized_symbol: z.string(),
+	decimals: z.number().int(),
+	logo_url: z.string(),
+	protocol_id: z.string(),
+	price: z.number(),
+	price_24h_change: z.number().nullable(),
+	credit_score: z.number().nullable(),
+	total_supply: z.number().nullable(),
+	is_verified: z.boolean(),
+	is_core: z.boolean(),
+	is_wallet: z.boolean(),
+	is_scam: z.boolean(),
+	is_suspicious: z.boolean(),
+	time_at: z.number().nullable(),
+	amount: z.number().describe("Wallet's holding of this token in token units."),
+	raw_amount: z.number(),
+	raw_amount_hex_str: z.string(),
+	balance: z.number(),
+	spenders: z
+		.array(TokenSpenderSchema)
+		.describe(
+			"Every address authorised to spend this token. Filter on `risk_level`, `is_contract`, or the unbounded `value` (≈ 1.16e77 for unlimited approvals) to surface risky approvals.",
+		),
+	sum_exposure_usd: z.number().nullable(),
+	exposure_balance: z.number(),
 });
 
 /** debank.user.getUserTokenAuthorizedList */
 export const UserTokenAuthorizedListSchema = z.array(TokenAuthorizationSchema);
 
-const NFTAuthorizationSchema = z.object({
-	contract_id: z.string(),
-	contract_name: z.string(),
-	contract_protocol_id: z.string(),
-	contract_protocol_logo_url: z.string(),
-	spender: z.string().describe("Spender contract address."),
-	spender_protocol_id: z.string(),
-	spender_protocol_name: z.string(),
-	spender_protocol_logo_url: z.string(),
-	is_erc721: z.boolean(),
-	amount: z.number().optional().describe("Amount approved (ERC1155 only)."),
-	nft_list: z.array(UserNFTSchema).optional(),
+const NFTSpenderSchema = z.object({
+	id: z.string().describe("Spender contract address."),
+	protocol: z
+		.object({
+			id: z.string(),
+			name: z.string(),
+			logo_url: z.string(),
+			chain: z.string(),
+		})
+		.nullable(),
+	last_approve_at: z.number(),
+	risk_level: z.string(),
+	risk_alert: z.string(),
+	exposure_nft_usd_value: z.number().nullable(),
+	spend_nft_usd_value: z.number().nullable(),
+	approve_user_count: z.number().int(),
+	revoke_user_count: z.number().int(),
 });
 
-/** debank.user.getUserNftAuthorizedList */
-export const UserNftAuthorizedListSchema = z.array(NFTAuthorizationSchema);
+const NFTApprovalCollectionSchema = z
+	.object({
+		id: z.string(),
+		chain: z.string().optional(),
+		chain_id: z.string().optional(),
+		name: z.string(),
+		description: z.string().nullable(),
+		logo_url: z.string(),
+		is_verified: z.boolean().nullable(),
+		is_suspicious: z.boolean().nullable(),
+		is_core: z.boolean(),
+		is_scam: z.boolean(),
+		floor_price: z.number().nullable(),
+		credit_score: z.number().nullable(),
+	})
+	.passthrough()
+	.describe(
+		"Collection metadata. DeBank adds many ranking/pricing fields that vary by collection — passthrough preserves them.",
+	);
+
+const NFTContractApprovalSchema = z.object({
+	chain: z.string(),
+	contract_name: z.string(),
+	contract_id: z.string(),
+	is_erc721: z.boolean(),
+	collection: NFTApprovalCollectionSchema,
+	amount: z
+		.string()
+		.describe("Approved amount as a string (use BigInt parsing for ERC1155)."),
+	spender: NFTSpenderSchema,
+});
+
+const NFTTokenApprovalSchema = z.object({
+	id: z.string(),
+	contract_id: z.string(),
+	inner_id: z.string(),
+	chain: z.string(),
+	symbol: z.string(),
+	name: z.string(),
+	description: z.string().nullable(),
+	content_type: z.string().nullable(),
+	content: z.string(),
+	thumbnail_url: z.string(),
+	total_supply: z.number(),
+	attributes: z.array(z.unknown()),
+	detail_url: z.string(),
+	collection_id: z.string(),
+	is_erc1155: z.boolean(),
+	is_erc721: z.boolean(),
+	pay_token: z.unknown().nullable(),
+	collection: NFTApprovalCollectionSchema,
+	contract_name: z.string(),
+	amount: z.string(),
+	spender: NFTSpenderSchema,
+});
+
+/**
+ * debank.user.getUserNftAuthorizedList
+ * The endpoint returns a wrapper with two distinct arrays:
+ *  - `contracts[]`: collection-wide approvals (one entry per collection × spender pair).
+ *  - `tokens[]`: per-NFT approvals (one entry per individual token × spender).
+ * `total` is a stringified count.
+ */
+export const UserNftAuthorizedListSchema = z.object({
+	total: z
+		.string()
+		.describe("Total approval count, returned as a string by DeBank."),
+	contracts: z.array(NFTContractApprovalSchema),
+	tokens: z.array(NFTTokenApprovalSchema),
+});
 
 /** debank.user.getUserTotalBalance */
 export const UserTotalBalanceSchema = z.object({
@@ -409,13 +539,11 @@ export const UserChainNetCurveSchema = z.array(NetCurvePointSchema);
 
 /**
  * debank.user.getUserTotalNetCurve
- * The Raw method returns a wrapper object — NOT a bare array.
+ * Returns a bare array of NetCurvePoint, same shape as the per-chain variant.
+ * (The old wrapper-around-array typing was incorrect — DeBank's response is
+ * a flat `[{ timestamp, usd_value }, …]`.)
  */
-export const UserTotalNetCurveSchema = z.object({
-	usd_value_list: z
-		.array(NetCurvePointSchema)
-		.describe("Array of 24-hour data points for total portfolio value."),
-});
+export const UserTotalNetCurveSchema = z.array(NetCurvePointSchema);
 
 // ============================================================================
 // Transaction schemas

@@ -989,7 +989,7 @@ export const ENTRIES: IndexEntry[] = [
 		id: "cookbook:08-net-value-curve.md",
 		title: "Get 24h net value curve",
 		content:
-			'# Get 24h net value curve\n\nReturns the net-worth time series for a wallet over the past 24 hours. The response is a wrapper object — you must access `.usd_value_list` to get the actual array of data points. Forgetting to unwrap is a common mistake.\n\n```js\nasync function run(debank) {\n  const wrapper = await debank.user.getUserTotalNetCurve({ id: "0xWALLET" });\n\n  // IMPORTANT: unwrap the response — the data lives at .usd_value_list\n  const points = wrapper.usd_value_list;\n\n  // Each point: { timestamp: number, usd_value: number }\n  const last7 = points.slice(-7);\n  const latest = last7[last7.length - 1];\n  const earliest = last7[0];\n  const changePct =\n    earliest.usd_value > 0\n      ? ((latest.usd_value - earliest.usd_value) / earliest.usd_value) * 100\n      : 0;\n\n  return { last7, changePct: changePct.toFixed(2) };\n}\n```\n',
+			'# Get 24h net value curve\n\nReturns the net-worth time series for a wallet over the past 24 hours. The response is a flat array of `{ timestamp, usd_value }` data points — no unwrap step.\n\n```js\nasync function run(debank) {\n  const points = await debank.user.getUserTotalNetCurve({ id: "0xWALLET" });\n\n  // Each point: { timestamp: number, usd_value: number }\n  const last7 = points.slice(-7);\n  const latest = last7[last7.length - 1];\n  const earliest = last7[0];\n  const changePct =\n    earliest.usd_value > 0\n      ? ((latest.usd_value - earliest.usd_value) / earliest.usd_value) * 100\n      : 0;\n\n  return { last7, changePct: changePct.toFixed(2) };\n}\n```\n',
 	},
 	{
 		kind: "prose",

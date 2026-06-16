@@ -75,11 +75,16 @@ If the user asked about a **specific chain only**, call \`debank.user.getUserTok
 
 \`\`\`js
 async function run(debank) {
-  // Note: v0.1 service signature is \`{id}\` only — this method queries
-  // approvals across all chains the wallet has interacted with.
-  const approvals = await debank.user.getUserTokenAuthorizedList({ id: "0xWALLET" });
-  // Filter to unlimited approvals
-  return approvals.filter(a => a.value === "unlimited" || Number(a.value) > 1e20);
+  // \`chain_id\` is required by DeBank's upstream for this endpoint. Each
+  // returned entry is a token with a \`spenders[]\` array — one entry per
+  // address authorised to spend that token. The \`value\` on a spender is
+  // raw token units; unlimited approvals show up as ~1.16e77 (max uint256).
+  const approvals = await debank.user.getUserTokenAuthorizedList({ id: "0xWALLET", chain_id: "eth" });
+  return approvals.flatMap(t =>
+    t.spenders
+      .filter(s => s.value > 1e20)  // approximation of "unlimited"
+      .map(s => ({ symbol: t.symbol, spender: s.id, protocol: s.protocol?.name ?? null, risk: s.risk_level }))
+  );
 }
 \`\`\`
 
@@ -189,17 +194,6 @@ Return only what you need. The result crosses the V8 boundary as a JSON copy —
 - 30 s outer wall-clock per \`execute\`.
 - 5 s per \`debank.*\` call; on timeout you'll see \`"DeBank call timed out after 5s: <method>"\`.
 - No persistent state between \`execute\` calls.
-
-## Wrapper-shape gotcha
-
-\`debank.user.getUserTotalNetCurve\` returns \`{usd_value_list: [...]}\` — unwrap before mapping:
-
-\`\`\`js
-async function run(debank) {
-  const curve = await debank.user.getUserTotalNetCurve({ id: "0xWALLET" });
-  return curve.usd_value_list.slice(-7);   // last 7 data points
-}
-\`\`\`
 
 ## --tools=dynamic mode (opt-in)
 
