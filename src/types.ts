@@ -325,8 +325,8 @@ export type TokenAuthorization = {
 	is_verified: boolean;
 	is_core: boolean;
 	is_wallet: boolean;
-	is_scam: boolean;
-	is_suspicious: boolean;
+	is_scam: boolean | null;
+	is_suspicious: boolean | null;
 	time_at: number | null;
 	amount: number;
 	raw_amount: number;
@@ -412,7 +412,7 @@ export type NFTTokenApproval = {
 	collection_id: string;
 	is_erc1155: boolean;
 	is_erc721: boolean;
-	pay_token: unknown | null;
+	pay_token: unknown;
 	collection: NFTApprovalCollection;
 	contract_name: string;
 	amount: string;

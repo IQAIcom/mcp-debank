@@ -78,11 +78,16 @@ async function run(debank) {
   // \`chain_id\` is required by DeBank's upstream for this endpoint. Each
   // returned entry is a token with a \`spenders[]\` array — one entry per
   // address authorised to spend that token. The \`value\` on a spender is
-  // raw token units; unlimited approvals show up as ~1.16e77 (max uint256).
+  // the approved amount in token units (already scaled by the token's
+  // \`decimals\`). Unlimited approvals appear as \`~1.16e(77 − decimals)\` —
+  // e.g. ~1.16e59 for an 18-decimal ERC20, ~1.16e71 for 6-decimal USDC.
+  // The raw uint256 (if needed) lives in \`t.raw_amount\` / \`t.raw_amount_hex_str\`.
+  // The 1e20 threshold below catches "unlimited" approvals across every
+  // common decimal count without false positives on legitimately large ones.
   const approvals = await debank.user.getUserTokenAuthorizedList({ id: "0xWALLET", chain_id: "eth" });
   return approvals.flatMap(t =>
     t.spenders
-      .filter(s => s.value > 1e20)  // approximation of "unlimited"
+      .filter(s => s.value > 1e20)
       .map(s => ({ symbol: t.symbol, spender: s.id, protocol: s.protocol?.name ?? null, risk: s.risk_level }))
   );
 }

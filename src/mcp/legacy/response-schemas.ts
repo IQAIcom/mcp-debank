@@ -402,8 +402,10 @@ const TokenAuthorizationSchema = z.object({
 	is_verified: z.boolean(),
 	is_core: z.boolean(),
 	is_wallet: z.boolean(),
-	is_scam: z.boolean(),
-	is_suspicious: z.boolean(),
+	// Risk-classifier flags are sometimes null while DeBank's classifier
+	// catches up — match the nullability of sibling fields like `is_hacked`.
+	is_scam: z.boolean().nullable(),
+	is_suspicious: z.boolean().nullable(),
 	time_at: z.number().nullable(),
 	amount: z.number().describe("Wallet's holding of this token in token units."),
 	raw_amount: z.number(),
@@ -489,7 +491,8 @@ const NFTTokenApprovalSchema = z.object({
 	collection_id: z.string(),
 	is_erc1155: z.boolean(),
 	is_erc721: z.boolean(),
-	pay_token: z.unknown().nullable(),
+	// `z.unknown()` already admits null/undefined; no need for `.nullable()`.
+	pay_token: z.unknown(),
 	collection: NFTApprovalCollectionSchema,
 	contract_name: z.string(),
 	amount: z.string(),

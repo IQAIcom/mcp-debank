@@ -379,6 +379,27 @@ describe("userService — endpoint contract regression tests", () => {
 		const url = spy.mock.calls[0]?.[0] as string;
 		expect(url).toContain("/user/total_net_curve");
 		expect(url).toContain(`id=${WALLET}`);
+		// Without chain_ids, the query string must not contain a chain_ids param —
+		// guards against a refactor that always forwards it as an empty string.
+		expect(url).not.toContain("chain_ids");
+	});
+
+	it("getUserTotalNetCurve forwards chain_ids when provided and still returns a bare array", async () => {
+		const upstream = [{ timestamp: 1781520900, usd_value: 356847.41 }];
+		const spy = spyFetch(upstream);
+
+		const result = await userService.getUserTotalNetCurveRaw({
+			id: WALLET,
+			chain_ids: "eth,arb",
+		});
+
+		const url = spy.mock.calls[0]?.[0] as string;
+		expect(url).toContain("/user/total_net_curve");
+		expect(url).toContain(`id=${WALLET}`);
+		expect(url).toContain("chain_ids=eth,arb");
+		// DeBank returns the same bare-array shape for the chain_ids-filtered
+		// variant; verified live against the gateway with chain_ids=eth,arb.
+		expect(Array.isArray(result)).toBe(true);
 	});
 
 	it("getUserTokenAuthorizedList forwards chain_id into the URL query string", async () => {
