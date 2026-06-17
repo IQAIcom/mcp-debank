@@ -1,50 +1,51 @@
 # Find a protocol's DeBank ID
 
-DeBank's `protocol_id` doesn't follow a single convention — guessing wastes calls and budget. Some protocols use a bare name (`uniswap`), some are versioned (`aave`, `aave2`, `aave3`, `aave4`), and per-chain deployments use a chain prefix (`aave3` on Ethereum, `arb_aave3` on Arbitrum, `avax_aave3` on Avalanche, `matic_aave3` on Polygon, `base_aave3` on Base, etc.).
-
-Don't guess. Enumerate the chain's protocol catalog and filter by name.
+DeBank's `protocol_id` doesn't follow a single convention — versions, separators, and chain prefixes vary unpredictably between protocols, so guessing wastes calls and budget. The fix is always the same shape: enumerate the catalog and filter by `name`.
 
 ```js
 async function run(debank) {
-  // Per-chain catalog returns every protocol on that chain.
-  const ethProtocols = await debank.protocol.getProtocolList({ chain_id: "eth" });
+  // Per-chain catalog returns every protocol on that chain — the
+  // comprehensive, ungapped source. Prefer this when you know the chain.
+  const protocols = await debank.protocol.getProtocolList({ chain_id: "eth" });
 
-  // Case-insensitive name filter to find candidates. The `name` field is the
-  // human-readable label DeBank shows in the UI ("Aave V3", "Uniswap V3").
-  const aaveCandidates = ethProtocols
+  // Case-insensitive name filter using whatever the user typed (the keyword
+  // is the input, not the answer). The `name` field is the human-readable
+  // label DeBank shows in the UI.
+  const candidates = protocols
     .filter(p => p.name && p.name.toLowerCase().includes("aave"))
     .map(p => ({ id: p.id, name: p.name }));
 
-  // Returns the variants the user might mean — pick by version.
-  // Example for eth: [{id:"aave",name:"Aave V1"}, {id:"aave2",name:"Aave V2"},
-  //                   {id:"aave3",name:"Aave V3"}, {id:"aave4",name:"Aave V4"},
-  //                   {id:"aave_amm",name:"Aave AMM"}, ...]
-  return aaveCandidates;
+  // Shape returned: `[{id: "<slug>", name: "<label>"}, ...]` — one entry per
+  // match. Pick the slug whose `name` matches the version the user asked for.
+  // DON'T hardcode the slug values; read them off the response.
+  return candidates;
 }
 ```
 
-Cross-chain catalog (when you need to disambiguate by chain):
+Cross-chain catalog (when the user names the protocol but not the chain):
 
 ```js
 async function run(debank) {
-  // Top 20 protocols across all chains; pass chain_ids to scope it.
+  // Comprehensive multi-chain catalog — no top-N cap, includes
+  // less-popular protocols on smaller chains. Each entry carries its
+  // `chain` field for disambiguation. Use this when the user says
+  // something like "Aave on Avalanche" and you need to pick the right
+  // chain variant.
   const protocols = await debank.protocol.getAllProtocolsOfSupportedChains({
     chain_ids: "eth,arb,avax,matic,base",
   });
 
-  // Each entry includes its chain — useful when the user says
-  // "Aave on Avalanche" and you need the avax variant.
   return protocols
     .filter(p => p.name && p.name.toLowerCase().includes("aave"))
     .map(p => ({ id: p.id, chain: p.chain, name: p.name }));
 }
 ```
 
-Once you have the ID, pass it to `debank.user.getUserProtocol({ id: "0xWALLET", protocol_id: "aave3" })` — see the protocol-positions recipe.
+Once you have the canonical ID from the response, pass it to `debank.user.getUserProtocol({ id, protocol_id })` — see the protocol-positions recipe.
 
-**Heuristics that don't replace looking it up:**
+**Things to know about the slug scheme (without baking in answers):**
 
-- Single-version protocols often use the bare name: `uniswap`, `curve`, `sushiswap`.
-- Multi-version protocols use numeric suffixes: `aave`, `aave2`, `aave3`, `aave4`. There is NO `aave_v3` form — the `_v` style is wrong.
-- Per-chain deployments use `<chain>_<protocol>` on non-Ethereum chains: `arb_aave3`, `base_aave3`. Ethereum is unprefixed.
-- App-protocols (cross-chain dApps wrapping multiple deployments) are listed separately via `getAppProtocolList` and have their own short IDs.
+- The slug is not derivable from the human-facing name. Don't try to construct it by replacing spaces, lowercasing, inserting `_v`, or any other transform — those forms generally don't exist in the catalog.
+- A protocol with multiple deployed versions has a separate slug per version. The `name` field disambiguates ("Foo V2" vs "Foo V3").
+- Per-chain deployments often use a `<chain>_<base>` prefix convention on non-Ethereum chains; Ethereum deployments are usually unprefixed. The actual catalog is authoritative — don't infer the prefix without checking.
+- Cross-chain "app-protocols" (dApps that wrap multiple per-chain deployments) live in a separate catalog under `getAppProtocolList` with their own slugs.

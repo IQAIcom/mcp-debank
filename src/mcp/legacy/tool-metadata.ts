@@ -150,7 +150,7 @@ export const TOOL_METADATA: ToolMetadata[] = [
 			"getAllProtocolsOfSupportedChainsRaw",
 		),
 		description:
-			"Retrieve a list of all DeFi protocols across specified or all supported blockchain chains. Returns essential information about each protocol including ID, chain ID, name, logo URL, site URL, portfolio support status, and TVL. Returns top 20 protocols by default. Filter by specific chains using chain_ids parameter.",
+			"Retrieve the full DeFi protocol catalog across specified or all supported blockchain chains. Returns essential information about each protocol including ID, chain ID, name, logo URL, site URL, portfolio support status, and TVL. The response is large — ~14,000 entries by default across every chain. Filter by specific chains using the `chain_ids` parameter (comma-separated) to narrow scope.",
 		parameters: z.object({
 			chain_ids: z
 				.string()
