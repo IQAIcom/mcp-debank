@@ -12,7 +12,7 @@ async function run(debank) {
   // Case-insensitive name filter to find candidates. The `name` field is the
   // human-readable label DeBank shows in the UI ("Aave V3", "Uniswap V3").
   const aaveCandidates = ethProtocols
-    .filter(p => p.name.toLowerCase().includes("aave"))
+    .filter(p => p.name && p.name.toLowerCase().includes("aave"))
     .map(p => ({ id: p.id, name: p.name }));
 
   // Returns the variants the user might mean — pick by version.
@@ -35,7 +35,7 @@ async function run(debank) {
   // Each entry includes its chain — useful when the user says
   // "Aave on Avalanche" and you need the avax variant.
   return protocols
-    .filter(p => p.name.toLowerCase().includes("aave"))
+    .filter(p => p.name && p.name.toLowerCase().includes("aave"))
     .map(p => ({ id: p.id, chain: p.chain, name: p.name }));
 }
 ```
