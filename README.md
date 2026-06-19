@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/iqaicom-mcp-debank-badge.png)](https://mseep.ai/app/iqaicom-mcp-debank)
+
 # 🏦 DeBank MCP Server
 
 [![npm version](https://img.shields.io/npm/v/@iqai/mcp-debank.svg)](https://www.npmjs.com/package/@iqai/mcp-debank)
