@@ -41,7 +41,7 @@ async function run(debank) {
 }
 ```
 
-Once you have the canonical ID from the response, pass it to `debank.user.getUserProtocol({ id, protocol_id })` — see the protocol-positions recipe.
+Once you have the canonical protocol slug (the `id` field on the candidate object — keep in mind it's named `id` in the catalog response but it's the protocol identifier, not the wallet), pass it as `protocol_id` to `debank.user.getUserProtocol({ id: "0xWALLET", protocol_id: "<the_slug>" })`. The `id` parameter on that call is the wallet address; don't conflate the two. See the protocol-positions recipe for the full shape.
 
 **Things to know about the slug scheme (without baking in answers):**
 

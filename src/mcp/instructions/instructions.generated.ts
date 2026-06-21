@@ -160,7 +160,7 @@ DeBank's \`protocol_id\` slugs are NOT derivable from the human-facing name. Ver
 
 **Before invoking any method that takes a \`protocol_id\` or \`token_id\`, look it up. Don't guess from the user's phrasing.**
 
-For protocols, use \`getProtocolList({chain_id})\` (per-chain) or \`getAllProtocolsOfSupportedChains({chain_ids})\` (cross-chain) and filter the result by \`name\`. For tokens, ask the user for the contract address, or use \`resolveWrappedToken(keyword, chain_id)\` for the wrapped-native special cases. The \`find-protocol-id\` recipe via \`search_docs\` walks through the canonical discovery pattern with concrete examples.
+For protocols, use \`debank.protocol.getProtocolList({chain_id})\` (per-chain) or \`debank.protocol.getAllProtocolsOfSupportedChains({chain_ids})\` (cross-chain) and filter the result by \`name\`. For tokens, ask the user for the contract address, or use \`debank.resolveWrappedToken(keyword, chain_id)\` for the wrapped-native special cases. The \`find-protocol-id\` recipe via \`search_docs\` walks through the canonical discovery pattern with concrete examples.
 
 ## Wrapped token keywords
 
