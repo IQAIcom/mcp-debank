@@ -11,8 +11,8 @@ async function run(debank) {
   // Case-insensitive name filter using whatever the user typed (the keyword
   // is the input, not the answer). The `name` field is the human-readable
   // label DeBank shows in the UI.
-  const candidates = protocols
-    .filter(p => p.name && p.name.toLowerCase().includes("aave"))
+  const candidates = (protocols || [])
+    .filter(p => p && p.name && p.name.toLowerCase().includes("aave"))
     .map(p => ({ id: p.id, name: p.name }));
 
   // Shape returned: `[{id: "<slug>", name: "<label>"}, ...]` — one entry per
@@ -35,8 +35,8 @@ async function run(debank) {
     chain_ids: "eth,arb,avax,matic,base",
   });
 
-  return protocols
-    .filter(p => p.name && p.name.toLowerCase().includes("aave"))
+  return (protocols || [])
+    .filter(p => p && p.name && p.name.toLowerCase().includes("aave"))
     .map(p => ({ id: p.id, chain: p.chain, name: p.name }));
 }
 ```
