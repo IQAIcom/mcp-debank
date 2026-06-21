@@ -1,6 +1,8 @@
 # List user positions in a specific DeFi protocol
 
-Returns a wallet's current positions inside a named DeFi protocol — LP shares, lending deposits, staking balances, etc. You need to know the DeBank `protocol_id` (e.g. `"uniswap"`, `"aave2"`, `"curve"`).
+Returns a wallet's current positions inside a named DeFi protocol — LP shares, lending deposits, staking balances, etc. You need the DeBank `protocol_id` (e.g. `"uniswap"`, `"aave3"`, `"curve"`).
+
+Not sure of the exact ID? Versions and chain prefixes vary (`aave3` on eth, `arb_aave3` on Arbitrum, etc.) — see the **find-protocol-id** recipe to enumerate the catalog before calling this. Don't guess: the IDs don't follow a single convention.
 
 ```js
 async function run(debank) {

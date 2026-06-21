@@ -120,7 +120,8 @@ async function run(debank) {
 
 ```js
 async function run(debank) {
-  return await debank.user.getUserProtocol({ id: "0xWALLET", protocol_id: "uniswap" });
+  // protocol_id is a DeBank slug — discover it first (see "Protocol & token IDs" below).
+  return await debank.user.getUserProtocol({ id: "0xWALLET", protocol_id: "<discovered_protocol_id>" });
 }
 ```
 
@@ -149,6 +150,14 @@ async function run(debank) {
 | Avalanche, AVAX | avax |
 
 If unsure, call `debank_resolve` or `await debank.resolveChain("...")` inside `execute()`.
+
+## Protocol & token IDs — discover, don't guess
+
+DeBank's `protocol_id` slugs are NOT derivable from the human-facing name. Versions, separators, and chain prefixes vary unpredictably between protocols — you cannot translate "Protocol V3" into a slug by intuition, and trying variants until one stops returning 404 wastes calls against the per-execute budget. The `token_id` is always a contract address, not a ticker symbol.
+
+**Before invoking any method that takes a `protocol_id` or `token_id`, look it up. Don't guess from the user's phrasing.**
+
+For protocols, use `debank.protocol.getProtocolList({chain_id})` (per-chain) or `debank.protocol.getAllProtocolsOfSupportedChains({chain_ids})` (cross-chain) and filter the result by `name`. For tokens, ask the user for the contract address, or use `debank.resolveWrappedToken(keyword, chain_id)` for the wrapped-native special cases. The `find-protocol-id` recipe via `search_docs` walks through the canonical discovery pattern with concrete examples.
 
 ## Wrapped token keywords
 
