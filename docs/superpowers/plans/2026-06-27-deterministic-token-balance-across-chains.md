@@ -72,7 +72,11 @@ describe("matchesTokenReference", () => {
 	});
 	it("rejects substring matches", () => {
 		expect(matchesTokenReference("IQ", holding({ name: "hiIQ", symbol: "hiIQ" }))).toBe(false);
-		expect(matchesTokenReference("USD", holding())).toBe(false); // "usd" != symbol "usdc"; name "USD Coin"->"usd" DOES match
+	});
+	it("matches via post-normalize equality, not substring", () => {
+		// holding().name "USD Coin" normalizes to "usd", so "USD" matches by NAME
+		// (exact post-normalize equality) — this is intended, not a substring match.
+		expect(matchesTokenReference("USD", holding())).toBe(true);
 	});
 	it("matches display_symbol / optimized_symbol when present", () => {
 		expect(matchesTokenReference("WETH", holding({ name: "Wrapped Ether", symbol: "ETH", optimized_symbol: "WETH" }))).toBe(true);
@@ -90,14 +94,6 @@ describe("matchesTokenReference", () => {
 		expect(matchesTokenReference("0xABC", holding())).toBe(false);
 	});
 });
-```
-
-Note the `"USD"` case: `holding().name` is `"USD Coin"` → normalizes to `"usd"`, so `matchesTokenReference("USD", holding())` is actually **true** via name. Fix that assertion to expect `true`, and rely on the `"IQ"` vs `"hiIQ"` case for substring rejection:
-
-```typescript
-	it("rejects substring matches", () => {
-		expect(matchesTokenReference("IQ", holding({ name: "hiIQ", symbol: "hiIQ" }))).toBe(false);
-	});
 ```
 
 - [ ] **Step 2: Run the test, expect failure**
@@ -202,7 +198,7 @@ describe("_getUserTokensWithSkippedChains", () => {
 			if (chain_id === "bsc") throw new Error("503");
 			return [{ chain: "eth", name: "IQ", symbol: "IQ", amount: 1, price: 1 } as any];
 		});
-		const { tokens, skipped } = await (userService as any)._getUserTokensWithSkippedChains({ id: WALLET, min_usd_value: 0 });
+		const { tokens, skipped } = await userService._getUserTokensWithSkippedChains({ id: WALLET, min_usd_value: 0 });
 		expect(tokens).toHaveLength(1);
 		expect(skipped).toEqual(["bsc"]);
 	});
@@ -230,40 +226,57 @@ Expected: FAIL — `_getUserTokensWithSkippedChains` is not a function.
 
 - [ ] **Step 3: Refactor `getUserTokensAcrossChainsRaw` into helper + wrapper**
 
-Rename the existing method body to `_getUserTokensWithSkippedChains`, return `{ tokens, skipped }`, and record skipped chains in the per-chain `.catch` **after** the abort re-throw. Move the existing 18-line JSDoc onto the helper. Then add the thin wrapper. The per-chain `.catch` (currently at ~user.service.ts:305) becomes:
+Rename the existing method to `_getUserTokensWithSkippedChains`, change its return type to `{ tokens; skipped }`, update the `targetChains.length === 0` early-return to the new shape, and record skipped chains in the per-chain `.catch` **after** the abort re-throw. Move the existing 18-line JSDoc onto the helper. Then add the thin wrapper. Full refactored body (replaces the current `getUserTokensAcrossChainsRaw`, ~user.service.ts:259-332):
 
 ```typescript
-		// inside _getUserTokensWithSkippedChains:
-		const skipped: string[] = [];
-		const lists = await Promise.all(
-			targetChains.map((chain_id) =>
-				this.getUserTokenListRaw(
-					{ id: args.id, chain_id, is_all: args.is_all },
-					options,
-				).catch((err) => {
-					if (options?.signal?.aborted) throw err; // cancellation is NOT a skip
-					logger.warn(
-						`Skipping chain ${chain_id} for user ${args.id} due to upstream error`,
-						err as Error,
-					);
-					skipped.push(chain_id);
-					return [] as UserTokenBalance[];
-				}),
-			),
-		);
-		throwIfAborted();
-		return { tokens: lists.flat(), skipped };
-```
-
-Signature + wrapper:
-
-```typescript
+	/* (move the existing 18-line JSDoc here) */
 	async _getUserTokensWithSkippedChains(
 		args: { id: string; min_usd_value?: number; is_all?: boolean },
 		options?: RequestOptions,
 	): Promise<{ tokens: UserTokenBalance[]; skipped: string[] }> {
-		/* ...existing body (throwIfAborted, getUserTotalBalanceRaw, targetChains
-		   filter, the Promise.all above), now returning { tokens, skipped }... */
+		const throwIfAborted = () => {
+			if (options?.signal?.aborted) {
+				throw (
+					options.signal.reason ??
+					new DOMException("This operation was aborted", "AbortError")
+				);
+			}
+		};
+		throwIfAborted();
+		const minUsdValue = args.min_usd_value ?? 1;
+		const skipped: string[] = [];
+		try {
+			const portfolio = await this.getUserTotalBalanceRaw({ id: args.id }, options);
+			throwIfAborted();
+			const targetChains = (portfolio?.chain_list ?? [])
+				.filter((c) => c?.id && c.usd_value >= minUsdValue)
+				.map((c) => c.id);
+			if (targetChains.length === 0) return { tokens: [], skipped: [] };
+			const lists = await Promise.all(
+				targetChains.map((chain_id) =>
+					this.getUserTokenListRaw(
+						{ id: args.id, chain_id, is_all: args.is_all },
+						options,
+					).catch((err) => {
+						if (options?.signal?.aborted) throw err; // cancellation is NOT a skip
+						logger.warn(
+							`Skipping chain ${chain_id} for user ${args.id} due to upstream error`,
+							err as Error,
+						);
+						skipped.push(chain_id);
+						return [] as UserTokenBalance[];
+					}),
+				),
+			);
+			throwIfAborted();
+			return { tokens: lists.flat(), skipped };
+		} catch (error) {
+			throwIfAborted();
+			throw logAndWrapError(
+				`Failed to fetch tokens across chains for user ${args.id}`,
+				error,
+			);
+		}
 	}
 
 	async getUserTokensAcrossChainsRaw(
@@ -274,7 +287,7 @@ Signature + wrapper:
 	}
 ```
 
-Keep every existing `throwIfAborted()` call and the `getUserTotalBalanceRaw(..., options)` thread intact inside the helper.
+Checklist (don't miss any): (1) rename + `{ tokens, skipped }` return type, (2) the `length === 0` early-return now returns `{ tokens: [], skipped: [] }`, (3) keep the outer `try/catch` + `logAndWrapError`, (4) keep the entry and inter-phase `throwIfAborted()` calls and the `getUserTotalBalanceRaw(..., options)` thread, (5) push to `skipped` only on the non-abort branch.
 
 - [ ] **Step 4: Run the tests, expect pass**
 
@@ -307,7 +320,7 @@ const T = (over: any = {}) => ({ chain: "eth", name: "Everipedia IQ", symbol: "I
 
 describe("getTokenBalanceAcrossChainsRaw", () => {
 	it("aggregates matches across chains with total, usd, and dedup", async () => {
-		vi.spyOn(userService as any, "_getUserTokensWithSkippedChains").mockResolvedValue({
+		vi.spyOn(userService, "_getUserTokensWithSkippedChains").mockResolvedValue({
 			tokens: [T({ chain: "eth", amount: 1, price: 2 }), T({ chain: "base", name: "pTokens IQ", amount: 10, price: 2 }), T({ chain: "eth", symbol: "DAI", name: "Dai", amount: 999 })],
 			skipped: [],
 		});
@@ -321,7 +334,7 @@ describe("getTokenBalanceAcrossChainsRaw", () => {
 		expect(r.error).toBeUndefined();
 	});
 	it("surfaces partial + chains_skipped", async () => {
-		vi.spyOn(userService as any, "_getUserTokensWithSkippedChains").mockResolvedValue({ tokens: [T()], skipped: ["bsc"] });
+		vi.spyOn(userService, "_getUserTokensWithSkippedChains").mockResolvedValue({ tokens: [T()], skipped: ["bsc"] });
 		const r = await userService.getTokenBalanceAcrossChainsRaw({ id: WALLET, token: "IQ" });
 		expect(r.partial).toBe(true);
 		expect(r.chains_skipped).toEqual(["bsc"]);
@@ -329,7 +342,7 @@ describe("getTokenBalanceAcrossChainsRaw", () => {
 	it("uses a single-chain fetch when chain is given", async () => {
 		(resolveChain as any).mockResolvedValue("eth");
 		const list = vi.spyOn(userService, "getUserTokenListRaw").mockResolvedValue([T()]);
-		const agg = vi.spyOn(userService as any, "_getUserTokensWithSkippedChains");
+		const agg = vi.spyOn(userService, "_getUserTokensWithSkippedChains");
 		const r = await userService.getTokenBalanceAcrossChainsRaw({ id: WALLET, token: "IQ", chain: "ethereum" });
 		expect(resolveChain).toHaveBeenCalledWith("ethereum");
 		expect(list).toHaveBeenCalledWith({ id: WALLET, chain_id: "eth", is_all: true }, undefined);
@@ -345,13 +358,13 @@ describe("getTokenBalanceAcrossChainsRaw", () => {
 		expect(r.partial).toBe(false);
 	});
 	it("returns empty (no error) when nothing matches", async () => {
-		vi.spyOn(userService as any, "_getUserTokensWithSkippedChains").mockResolvedValue({ tokens: [T({ symbol: "DAI", name: "Dai" })], skipped: [] });
+		vi.spyOn(userService, "_getUserTokensWithSkippedChains").mockResolvedValue({ tokens: [T({ symbol: "DAI", name: "Dai" })], skipped: [] });
 		const r = await userService.getTokenBalanceAcrossChainsRaw({ id: WALLET, token: "IQ" });
 		expect(r.matches).toEqual([]);
 		expect(r.error).toBeUndefined();
 	});
 	it("marks a non-finite amount null and excludes it from totals", async () => {
-		vi.spyOn(userService as any, "_getUserTokensWithSkippedChains").mockResolvedValue({
+		vi.spyOn(userService, "_getUserTokensWithSkippedChains").mockResolvedValue({
 			tokens: [T({ chain: "eth", amount: 5, price: 1 }), T({ chain: "base", amount: Number.NaN, price: 1 })],
 			skipped: [],
 		});
@@ -497,6 +510,7 @@ export const TokenBalanceAcrossChainsSchema = z.object({
 In `src/mcp/legacy/tool-metadata.ts`, import the schema in the existing response-schema import block, then add this entry to the `TOOL_METADATA` array (next to the `getUserTokensAcrossChains` entry):
 ```typescript
 	{
+		name: "debank_get_token_balance_across_chains",
 		qualified: "debank.user.getTokenBalanceAcrossChains",
 		sandboxImpl: lazyMethod("userService", "getTokenBalanceAcrossChainsRaw"),
 		description:
@@ -515,16 +529,17 @@ In `src/mcp/legacy/tool-metadata.ts`, import the schema in the existing response
 
 - [ ] **Step 4: Regenerate docs + run the full test suite**
 
-Run: `pnpm build:docs` (regenerates `embedded-index.ts` + `instructions.generated.ts` from `TOOL_METADATA` — do NOT hand-edit those files).
+Run: `pnpm build:docs` (regenerates ONLY `src/mcp/search-docs/embedded-index.ts` from `TOOL_METADATA` — do NOT hand-edit it). Note: `instructions.generated.ts` is NOT affected — `build:instructions` derives it from `instructions.md`, not `TOOL_METADATA`, so adding a metadata entry leaves it unchanged.
 Run: `npx vitest run`
 Expected: PASS, including `tool-metadata.test.ts` (now 36) and any `tool-metadata.import.test.ts` boundary test.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/mcp/legacy/response-schemas.ts src/mcp/legacy/tool-metadata.ts src/mcp/legacy/tool-metadata.test.ts src/mcp/search-docs/embedded-index.ts src/mcp/instructions/instructions.generated.ts
+git add src/mcp/legacy/response-schemas.ts src/mcp/legacy/tool-metadata.ts src/mcp/legacy/tool-metadata.test.ts src/mcp/search-docs/embedded-index.ts
 git commit -m "feat: register debank.user.getTokenBalanceAcrossChains in TOOL_METADATA"
 ```
+(No `instructions.generated.ts` in the add list — it isn't regenerated by this change. If `git status` shows it modified, that's a stale artifact: discard it with `git checkout -- src/mcp/instructions/instructions.generated.ts`.)
 
 ---
 
@@ -594,9 +609,17 @@ Expected: install succeeds; `node_modules/@iqai/mcp-debank` resolves to the work
 **Files:**
 - Modify: `src/agents/sub-agents/workflow-agent/sub-agents/api-search-agent/sub-agents/debank-agent/instruction.ts`
 
-- [ ] **Step 1: Replace the multichain/decimals workaround bullets with a single discovery-driven instruction**
+- [ ] **Step 1: Replace the workaround bullets with a single discovery-driven instruction**
 
-Delete the bullets added across #105 (the resolution/normalize bullet, the all-chain enumeration bullet, the mandatory-total bullet, and the balance-extraction nudge) from the shared `## Code Rules`. Replace with one bullet:
+In the shared `## Code Rules`, **keep** the first two bullets (`Use async/await…` and `Filter/sort results…`) and **delete these THREE token-balance bullets** (verified current text on branch `feat/debank-multichain-token-disambiguation` — grep the opening words to locate):
+
+```
+- When the user names a token without giving its contract address, resolve it from the wallet's holdings: normalize both the user's reference and each holding's name and symbol the same way — trim whitespace, lower-case, and drop a trailing generic descriptor word ("token"/"coin") unless it is the only word (so a token literally named "Coin" stays intact) — then require an exact match (never a substring). When the user specifies a chain, restrict the match to that chain. Never guess or assume a token contract address.
+- When resolving a named token (the rule above) and the user did not name a chain, enumerate the wallet's holdings across all chains (not a single chain) so every chain holding the token is found. If the resolved token — the holdings matched by the rule above (same normalized name or symbol) — is held on more than one chain, report each matching chain's balance and, in the same response, always include a combined total computed by summing those per-chain balances (never omit the total or offer it as a follow-up); if their token names differ across chains (e.g. a bridged or wrapped representation), note that the total is a raw sum of distinct representations.
+- Report each holding's human-readable balance exactly as the holdings data provides it — it is already decimal-adjusted, so never divide it by 10^decimals again, and never report it as null or zero when the holding exists (if your value comes back empty, you read the wrong field).
+```
+
+Replace those three with one bullet:
 ```
 - For a wallet's balance of a named token, call `debank.user.getTokenBalanceAcrossChains({ id, token })` (add `chain` if the user named one) and present its structured result — per-chain `matches`, `total`/`total_usd`, and note `mixed_representations`/`partial` when set. Do not compute balances yourself.
 ```
