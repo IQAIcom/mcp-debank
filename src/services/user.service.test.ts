@@ -780,3 +780,53 @@ describe("response schemas validate against realistic fixtures", () => {
 		}
 	});
 });
+
+describe("_getUserTokensWithSkippedChains", () => {
+	it("returns skipped chain ids for chains whose token_list rejected", async () => {
+		vi.spyOn(userService, "getUserTotalBalanceRaw").mockResolvedValue({
+			total_usd_value: 5,
+			chain_list: [
+				{ id: "eth", usd_value: 5 },
+				{ id: "bsc", usd_value: 3 },
+			],
+		} as any);
+		vi.spyOn(userService, "getUserTokenListRaw").mockImplementation(
+			async ({ chain_id }: any) => {
+				if (chain_id === "bsc") throw new Error("503");
+				return [
+					{
+						chain: "eth",
+						name: "IQ",
+						symbol: "IQ",
+						amount: 1,
+						price: 1,
+					} as any,
+				];
+			},
+		);
+		const { tokens, skipped } =
+			await userService._getUserTokensWithSkippedChains({
+				id: WALLET,
+				min_usd_value: 0,
+			});
+		expect(tokens).toHaveLength(1);
+		expect(skipped).toEqual(["bsc"]);
+	});
+});
+
+describe("getUserTokensAcrossChainsRaw (contract preserved)", () => {
+	it("still returns a flat token array", async () => {
+		vi.spyOn(userService, "getUserTotalBalanceRaw").mockResolvedValue({
+			total_usd_value: 5,
+			chain_list: [{ id: "eth", usd_value: 5 }],
+		} as any);
+		vi.spyOn(userService, "getUserTokenListRaw").mockResolvedValue([
+			{ chain: "eth", name: "IQ", symbol: "IQ", amount: 1, price: 1 } as any,
+		]);
+		const tokens = await userService.getUserTokensAcrossChainsRaw({
+			id: WALLET,
+		});
+		expect(Array.isArray(tokens)).toBe(true);
+		expect(tokens).toHaveLength(1);
+	});
+});
