@@ -42,7 +42,15 @@ shrinks to a single call with no arithmetic.
 
 ### New host-side aggregate: `UserService.getTokenBalanceAcrossChainsRaw`
 
-Signature: `{ id: string; token: string; chain?: string } -> TokenBalanceAcrossChains`
+Signature: `(args: { id: string; token: string; chain?: string }, options?: RequestOptions) -> Promise<TokenBalanceAcrossChains>`
+
+The `options?: RequestOptions` second parameter is **mandatory to declare** — the
+sandbox bridge calls every `*Raw` method as `rawFn(parsedArgs, { signal, timeout })`
+(client.ts:188-192). Thread `options` into BOTH `getUserTokenListRaw` (single-chain
+path) and `_getUserTokensWithSkippedChains` (all-chains path), so the sandbox's
+abort signal and per-method timeout reach every upstream call. Dropping it
+silently breaks abort-on-cancel and replaces the clean "DeBank call timed out
+after 45s" message with a raw axios `ECONNABORTED`.
 
 Always a COMPLETE sweep; does not expose `min_usd_value`/`is_all`.
 
@@ -221,7 +229,9 @@ Package (the real test surface):
   `getUserTokensAcrossChainsRaw` still returns the flat array (contract preserved).
 - `src/mcp/legacy/tool-metadata.test.ts`: hardcoded
   `expect(TOOL_METADATA).toHaveLength(35)` → `36`; add a new-entry well-formedness
-  assertion. (Check `embedded-index` tests for an analogous count, if any.)
+  assertion. No search-docs/embedded-index test asserts a fixed entry count (the
+  integration test only checks `results.length > 0`), so only
+  `tool-metadata.test.ts` needs the bump.
 
 aiden (end-to-end, via the dev-linked build):
 - `/api/query` on `gpt-4.1-mini`: multichain query returns a consistent per-chain
@@ -242,8 +252,9 @@ aiden (end-to-end, via the dev-linked build):
 
 ## Cross-repo sequencing
 
-- PR 1 (`debank-mcp`): internal helper + new method + matcher + TOOL_METADATA &
-  embedded-index entries + responseSchema + tests + changeset → publish.
+- PR 1 (`debank-mcp`): internal helper + new method + matcher + TOOL_METADATA
+  entry (embedded-index regenerates via `build:docs`) + responseSchema + tests +
+  changeset → publish.
 - PR 2 (`aiden`): guest wiring + dependency bump to the published version + revert
   the superseded #105 instruction bullets. (The existing aiden #105 branch becomes
   this PR.)
