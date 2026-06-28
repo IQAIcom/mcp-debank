@@ -947,4 +947,24 @@ describe("getTokenBalanceAcrossChainsRaw", () => {
 		expect(r.matches.find((m) => m.chain === "base")?.amount).toBeNull();
 		expect(r.total).toBe(5);
 	});
+	it("survives a null name on a matched holding (defensive nullish coalesce)", async () => {
+		// DeBank occasionally returns null `name` for custom/newly-deployed
+		// tokens — the matcher matches via symbol, but downstream string ops
+		// must not crash. Mirrors the cookbook's `p && p.name` precedent.
+		vi.spyOn(userService, "_getUserTokensWithSkippedChains").mockResolvedValue({
+			tokens: [
+				T({ chain: "eth", name: null as unknown as string, symbol: "IQ" }),
+				T({ chain: "base", name: "Everipedia IQ", symbol: "IQ" }),
+			],
+			skipped: [],
+		});
+		const r = await userService.getTokenBalanceAcrossChainsRaw({
+			id: WALLET,
+			token: "IQ",
+		});
+		expect(r.matches.find((m) => m.chain === "eth")?.name).toBe("");
+		// Null name coalesces to "" — distinct from "everipedia iq" — so the
+		// flag still surfaces. Without the guard the .trim() above would throw.
+		expect(r.mixed_representations).toBe(true);
+	});
 });

@@ -355,14 +355,22 @@ export class UserService extends BaseService {
 		}
 
 		const matched = holdings.filter((h) => matchesTokenReference(token, h));
+		// DeBank response objects occasionally have null/missing `name` or
+		// `symbol` fields on custom/newly-deployed tokens (cookbook precedent —
+		// see commit b0b12f1's defensive `p && p.name` guard). The TS types
+		// claim non-null, but `fetchWithToolConfig` does not validate the
+		// response, so the runtime can hand us nulls. Coalesce to "" here so
+		// downstream string ops (and the agent's render) don't trip on them.
+		const safeName = (h: UserTokenBalance) => h.name ?? "";
+		const safeSymbol = (h: UserTokenBalance) => h.symbol ?? "";
 		const matches = matched.map((h) => {
 			const amount = Number.isFinite(h.amount) ? h.amount : null;
 			const price = Number.isFinite(h.price) ? h.price : 0;
 			const usd = amount !== null ? amount * price : 0;
 			return {
 				chain: h.chain,
-				name: h.name,
-				symbol: h.symbol,
+				name: safeName(h),
+				symbol: safeSymbol(h),
 				amount,
 				price,
 				usd,
@@ -383,7 +391,7 @@ export class UserService extends BaseService {
 			total,
 			total_usd,
 			mixed_representations:
-				new Set(matched.map((h) => h.name.trim().toLowerCase())).size > 1,
+				new Set(matched.map((h) => safeName(h).trim().toLowerCase())).size > 1,
 			chains: [...new Set(matched.map((h) => h.chain))],
 			partial: skipped.length > 0,
 			chains_skipped: skipped,
